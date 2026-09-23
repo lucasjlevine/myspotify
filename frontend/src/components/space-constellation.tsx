@@ -22,17 +22,29 @@ type Props = {
   className?: string;
 };
 
-const MIN_SCALE = 0.35;
-const MAX_SCALE = 4;
-const SIZE = 720;
-const PAD = 56;
-
-function toPx(v: number) {
-  return PAD + ((v + 1) / 2) * (SIZE - PAD * 2);
-}
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 5;
 
 function clampScale(s: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+}
+
+/** Map PCA coords [-1, 1] → viewport pixels. Art stays 1:1 (no CSS scale). */
+function project(
+  wx: number,
+  wy: number,
+  *,
+  width: number,
+  height: number,
+  scale: number,
+  panX: number,
+  panY: number,
+) {
+  const radius = Math.min(width, height) * 0.4 * scale;
+  return {
+    x: width / 2 + panX + wx * radius,
+    y: height / 2 + panY + wy * radius,
+  };
 }
 
 export function SpaceConstellation({ points, edges, query, className }: Props) {
@@ -40,11 +52,18 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [grabbing, setGrabbing] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const scaleRef = useRef(scale);
+  const panRef = useRef(pan);
   const dragging = useRef(false);
   const dragOrigin = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const skipClick = useRef(false);
+
+  scaleRef.current = scale;
+  panRef.current = pan;
 
   const byId = useMemo(() => {
     const map = new Map<string, SpacePoint>();
@@ -58,66 +77,88 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
     null;
   const focusId = hoveredId ?? selectedId;
 
-  const neighbors = points
-    .filter((p) => p.kind === "neighbor")
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const neighbors = useMemo(
+    () =>
+      points
+        .filter((p) => p.kind === "neighbor")
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)),
+    [points],
+  );
 
-  // Reset view when the projected set changes
+  const screenOf = useCallback(
+    (wx: number, wy: number) =>
+      project(wx, wy, {
+        width: size.w,
+        height: size.h,
+        scale,
+        panX: pan.x,
+        panY: pan.y,
+      }),
+    [size.w, size.h, scale, pan.x, pan.y],
+  );
+
   useEffect(() => {
     setScale(1);
     setPan({ x: 0, y: 0 });
     setSelectedId(null);
-  }, [query, points]);
+  }, [query]);
 
-  // Non-passive wheel so we can prevent page scroll while zooming
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setSize({ w: width, h: height });
+    });
+    ro.observe(el);
+    const rect = el.getBoundingClientRect();
+    setSize({ w: rect.width, h: rect.height });
+    return () => ro.disconnect();
+  }, []);
+
+  const zoomAt = useCallback((nextScale: number, clientX: number, clientY: number) => {
+    const el = viewportRef.current;
+    const prev = scaleRef.current;
+    const clamped = clampScale(nextScale);
+    if (!el || prev === 0) {
+      setScale(clamped);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
+    const { x: panX, y: panY } = panRef.current;
+    const ratio = clamped / prev;
+    // Keep the world point under the cursor fixed in screen space
+    setPan({
+      x: mx - w / 2 - (mx - w / 2 - panX) * ratio,
+      y: my - h / 2 - (my - h / 2 - panY) * ratio,
+    });
+    setScale(clamped);
+  }, []);
+
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const onWheelNative = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-      const next = clampScale(scale * factor);
-      const rect = el.getBoundingClientRect();
-      const cx = e.clientX - rect.left - rect.width / 2;
-      const cy = e.clientY - rect.top - rect.height / 2;
-      const ratio = next / scale;
-      setPan((p) => ({
-        x: cx - (cx - p.x) * ratio,
-        y: cy - (cy - p.y) * ratio,
-      }));
-      setScale(next);
+      zoomAt(scaleRef.current * factor, e.clientX, e.clientY);
     };
     el.addEventListener("wheel", onWheelNative, { passive: false });
     return () => el.removeEventListener("wheel", onWheelNative);
-  }, [scale]);
-
-  const zoomAt = useCallback(
-    (nextScale: number, clientX: number, clientY: number) => {
-      const el = viewportRef.current;
-      if (!el) {
-        setScale(clampScale(nextScale));
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      const cx = clientX - rect.left - rect.width / 2;
-      const cy = clientY - rect.top - rect.height / 2;
-      const clamped = clampScale(nextScale);
-      const ratio = clamped / scale;
-      setPan((p) => ({
-        x: cx - (cx - p.x) * ratio,
-        y: cy - (cy - p.y) * ratio,
-      }));
-      setScale(clamped);
-    },
-    [scale],
-  );
+  }, [zoomAt]);
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
-    // Don't pan when interacting with a node
     if ((e.target as HTMLElement).closest("[data-space-node]")) return;
     dragging.current = true;
     skipClick.current = false;
+    setGrabbing(true);
     dragOrigin.current = {
       x: e.clientX,
       y: e.clientY,
@@ -140,6 +181,7 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
 
   function onPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
     dragging.current = false;
+    setGrabbing(false);
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -152,6 +194,8 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
     setPan({ x: 0, y: 0 });
   }
 
+  const ready = size.w > 0 && size.h > 0;
+
   return (
     <div className={cn("grid gap-4 lg:grid-cols-[1fr_280px]", className)}>
       <div className="relative">
@@ -159,7 +203,7 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
           ref={viewportRef}
           className={cn(
             "relative aspect-square w-full overflow-hidden border border-border bg-[radial-gradient(ellipse_at_center,oklch(0.22_0.03_145)_0%,var(--background)_70%)]",
-            dragging.current ? "cursor-grabbing" : "cursor-grab",
+            grabbing ? "cursor-grabbing" : "cursor-grab",
           )}
           style={{ maxHeight: "min(72vh, 720px)" }}
           onPointerDown={onPointerDown}
@@ -167,122 +211,122 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <div
-            className="absolute inset-0 origin-center will-change-transform"
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-            }}
-          >
-            <svg
-              viewBox={`0 0 ${SIZE} ${SIZE}`}
-              className="absolute inset-0 size-full"
-              aria-hidden
-            >
-              {[0.25, 0.5, 0.75, 1].map((r) => (
-                <circle
-                  key={r}
-                  cx={SIZE / 2}
-                  cy={SIZE / 2}
-                  r={((SIZE - PAD * 2) / 2) * r}
-                  fill="none"
-                  stroke="var(--border)"
-                  strokeWidth={1 / scale}
-                  strokeDasharray={`${2 / scale} ${6 / scale}`}
-                  opacity={0.5}
-                />
-              ))}
-              {edges.map((e) => {
-                const a = byId.get(e.source);
-                const b = byId.get(e.target);
-                if (!a || !b) return null;
-                const active =
-                  focusId === e.target || focusId === e.source || !focusId;
-                const isNeighbor = e.kind === "neighbor";
+          {ready && (
+            <>
+              <svg
+                width={size.w}
+                height={size.h}
+                className="absolute inset-0 block"
+                aria-hidden
+              >
+                {[0.25, 0.5, 0.75, 1].map((r) => {
+                  const c = screenOf(0, 0);
+                  const rad = Math.min(size.w, size.h) * 0.4 * scale * r;
+                  return (
+                    <circle
+                      key={r}
+                      cx={c.x}
+                      cy={c.y}
+                      r={rad}
+                      fill="none"
+                      stroke="var(--border)"
+                      strokeWidth={1}
+                      strokeDasharray="2 6"
+                      opacity={0.45}
+                    />
+                  );
+                })}
+                {edges.map((e) => {
+                  const a = byId.get(e.source);
+                  const b = byId.get(e.target);
+                  if (!a || !b) return null;
+                  const pa = screenOf(a.x, a.y);
+                  const pb = screenOf(b.x, b.y);
+                  const active =
+                    focusId === e.target || focusId === e.source || !focusId;
+                  const isNeighbor = e.kind === "neighbor";
+                  return (
+                    <line
+                      key={`${e.source}-${e.target}`}
+                      x1={pa.x}
+                      y1={pa.y}
+                      x2={pb.x}
+                      y2={pb.y}
+                      stroke={isNeighbor ? "var(--primary)" : "var(--border)"}
+                      strokeWidth={isNeighbor ? 1.25 : 0.75}
+                      opacity={
+                        active
+                          ? isNeighbor
+                            ? 0.25 + Math.max(0, e.weight) * 0.45
+                            : 0.12
+                          : 0.04
+                      }
+                    />
+                  );
+                })}
+              </svg>
+
+              {points.map((p) => {
+                const { x, y } = screenOf(p.x, p.y);
+                const isQuery = p.kind === "query";
+                const isNeighbor = p.kind === "neighbor";
+                const dimmed = focusId != null && focusId !== p.id && !isQuery;
                 return (
-                  <line
-                    key={`${e.source}-${e.target}`}
-                    x1={toPx(a.x)}
-                    y1={toPx(a.y)}
-                    x2={toPx(b.x)}
-                    y2={toPx(b.y)}
-                    stroke={isNeighbor ? "var(--primary)" : "var(--border)"}
-                    strokeWidth={(isNeighbor ? 1.25 : 0.75) / scale}
-                    opacity={
-                      active
-                        ? isNeighbor
-                          ? 0.25 + Math.max(0, e.weight) * 0.45
-                          : 0.12
-                        : 0.04
+                  <button
+                    key={p.id}
+                    type="button"
+                    data-space-node
+                    title={
+                      isQuery
+                        ? query
+                        : `${p.track_name ?? p.id} — ${p.artist_names ?? ""}`
                     }
-                    className="transition-opacity duration-300"
-                  />
+                    onClick={() => {
+                      if (skipClick.current) return;
+                      setSelectedId(isQuery ? null : p.id);
+                    }}
+                    onMouseEnter={() => setHoveredId(p.id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    className={cn(
+                      "absolute cursor-pointer transition-opacity duration-200",
+                      dimmed && "opacity-25",
+                      isQuery && "z-20",
+                      isNeighbor && "z-10",
+                    )}
+                    style={{
+                      left: x,
+                      top: y,
+                      transform: "translate(-50%, -50%)",
+                    }}
+                  >
+                    {isQuery ? (
+                      <span className="relative flex size-14 items-center justify-center border border-primary bg-primary/15 font-mono text-[10px] uppercase tracking-wider text-primary">
+                        <span className="absolute inset-0 animate-ping border border-primary/40 opacity-20" />
+                        prompt
+                      </span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "block border",
+                          isNeighbor
+                            ? "border-primary/50"
+                            : "border-border opacity-70 hover:opacity-100",
+                          selectedId === p.id && "ring-1 ring-primary",
+                        )}
+                      >
+                        <AlbumArt
+                          src={p.album_image_url}
+                          alt={p.album_name ?? p.track_name ?? ""}
+                          size="sm"
+                          className={cn(!isNeighbor && "size-7 opacity-80")}
+                        />
+                      </span>
+                    )}
+                  </button>
                 );
               })}
-            </svg>
-
-            {points.map((p, i) => {
-              const left = ((p.x + 1) / 2) * 100;
-              const top = ((p.y + 1) / 2) * 100;
-              const isQuery = p.kind === "query";
-              const isNeighbor = p.kind === "neighbor";
-              const dimmed = focusId != null && focusId !== p.id && !isQuery;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  data-space-node
-                  title={
-                    isQuery
-                      ? query
-                      : `${p.track_name ?? p.id} — ${p.artist_names ?? ""}`
-                  }
-                  onClick={() => {
-                    if (skipClick.current) return;
-                    setSelectedId(isQuery ? null : p.id);
-                  }}
-                  onMouseEnter={() => setHoveredId(p.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                  className={cn(
-                    "absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-opacity duration-300",
-                    dimmed && "opacity-25",
-                    isQuery && "z-20",
-                    isNeighbor && "z-10",
-                  )}
-                  style={{
-                    left: `${left}%`,
-                    top: `${top}%`,
-                    // Counter-scale so album art stays readable while zoomed
-                    transform: `translate(-50%, -50%) scale(${1 / Math.sqrt(scale)})`,
-                    animationDelay: `${Math.min(i, 24) * 28}ms`,
-                  }}
-                >
-                  {isQuery ? (
-                    <span className="relative flex size-14 items-center justify-center border border-primary bg-primary/15 font-mono text-[10px] uppercase tracking-wider text-primary animate-fade-up">
-                      <span className="absolute inset-0 animate-ping border border-primary/40 opacity-20" />
-                      prompt
-                    </span>
-                  ) : (
-                    <span
-                      className={cn(
-                        "block animate-fade-up border transition-transform hover:scale-110",
-                        isNeighbor
-                          ? "border-primary/50"
-                          : "border-border opacity-70 hover:opacity-100",
-                        selectedId === p.id && "ring-1 ring-primary",
-                      )}
-                    >
-                      <AlbumArt
-                        src={p.album_image_url}
-                        alt={p.album_name ?? p.track_name ?? ""}
-                        size="sm"
-                        className={cn(!isNeighbor && "size-7 opacity-80")}
-                      />
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+            </>
+          )}
 
           {!points.length && (
             <p className="absolute inset-0 flex items-center justify-center font-mono text-xs text-muted-foreground">
