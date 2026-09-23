@@ -97,9 +97,9 @@ export default function SpacePage() {
             Song space
           </h1>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            A PCA slice of your hybrid song-space. The prompt sits at the
-            origin; neighbors orbit by cosine similarity. Annotated tracks
-            (genres + audio moods) pull the map into focus.
+            A PCA slice of your hybrid song-space. Scroll to zoom, drag to pan.
+            Neighbors orbit by cosine similarity; annotated tracks (genres +
+            audio moods) pull the map into focus.
           </p>
         </div>
         <div className="min-w-[220px] border border-border bg-card/50 p-3">

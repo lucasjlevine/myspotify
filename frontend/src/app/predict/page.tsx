@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   Bar,
@@ -40,11 +39,9 @@ import {
   listPlays,
   localTzOffsetMinutes,
   predictNext,
-  searchByPrompt,
   type ModelInfo,
   type Play,
   type PredictResponse,
-  type Prediction,
   type WindowPreset,
 } from "@/lib/api";
 import { formatPlayedAt, formatScore } from "@/lib/format";
@@ -53,6 +50,16 @@ import { cn } from "@/lib/utils";
 const scoreConfig = {
   score: { label: "Score", color: "var(--chart-1)" },
 } satisfies ChartConfig;
+
+/** Embedding lives on Song Space — keep Predict for next-song models only. */
+const PREDICT_MODELS = new Set([
+  "markov",
+  "popularity",
+  "artist",
+  "cooccurrence",
+  "item_knn",
+  "prompted",
+]);
 
 const DEFAULT_WINDOWS: WindowPreset[] = [
   { id: "latest", label: "Latest track", description: "Single most recent play" },
@@ -85,13 +92,9 @@ function PredictInner() {
     searchParams.get("track_id") ?? "",
   );
   const [result, setResult] = useState<PredictResponse | null>(null);
-  const [prompt, setPrompt] = useState("Rainy fall day");
-  const [promptHits, setPromptHits] = useState<Prediction[] | null>(null);
-  const [promptMeta, setPromptMeta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [pending, startTransition] = useTransition();
-  const [promptPending, startPrompt] = useTransition();
 
   useEffect(() => {
     let cancelled = false;
@@ -102,12 +105,17 @@ function PredictInner() {
           listPlays(40),
         ]);
         if (cancelled) return;
-        setModels(modelsRes.models);
+        const predictModels = modelsRes.models.filter((m) =>
+          PREDICT_MODELS.has(m.id),
+        );
+        setModels(predictModels);
         if (modelsRes.windows?.length) setWindows(modelsRes.windows);
         setDefaultModel(modelsRes.default);
         const preferred =
-          modelsRes.models.find((m) => m.id === "embedding" && m.trained)?.id ??
-          modelsRes.models.find((m) => m.id === "prompted" && m.trained)?.id ??
+          predictModels.find((m) => m.id === "prompted" && m.trained)?.id ??
+          predictModels.find((m) => m.id === modelsRes.default && m.trained)
+            ?.id ??
+          predictModels.find((m) => m.trained)?.id ??
           modelsRes.default;
         setModel(preferred);
         setPlays(playsRes.plays);
@@ -147,32 +155,6 @@ function PredictInner() {
     });
   }, [k, model, seedId, windowId]);
 
-  function runPromptSearch() {
-    setError(null);
-    startPrompt(async () => {
-      try {
-        const res = await searchByPrompt({
-          q: prompt,
-          k,
-          model: "embedding",
-        });
-        setPromptHits(res.predictions);
-        setPromptMeta(
-          res.model.dim
-            ? `${res.model.backend} · ${res.model.dim}-d · ${res.model.n_tracks?.toLocaleString()} tracks`
-            : null,
-        );
-      } catch (err) {
-        setPromptHits(null);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Prompt search failed — train embedding model first",
-        );
-      }
-    });
-  }
-
   useEffect(() => {
     if (loadingMeta) return;
     const trained = models.some((m) => m.id === model && m.trained);
@@ -205,9 +187,8 @@ function PredictInner() {
           Predict
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Seed from a listening window, or describe a mood —{" "}
-          <span className="text-primary">embedding</span> maps tracks into a
-          local vector space for neighbors and phrase search.
+          Next-song models seeded from a listening window. Mood / phrase search
+          lives in Song space.
         </p>
       </div>
 
@@ -217,73 +198,9 @@ function PredictInner() {
         </p>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Mood prompt</CardTitle>
-          <CardDescription>
-            free-text → nearest tracks — or open{" "}
-            <Link href="/space" className="text-primary underline-offset-2 hover:underline">
-              Song space
-            </Link>{" "}
-            for the constellation view
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") runPromptSearch();
-              }}
-              placeholder='e.g. "Rainy fall day" or "late night drive"'
-              className="min-w-[240px] flex-1 border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-primary"
-            />
-            <Button onClick={runPromptSearch} disabled={promptPending || !prompt.trim()}>
-              {promptPending && <Loader2 className="size-4 animate-spin" />}
-              Search space
-            </Button>
-          </div>
-          {promptMeta && (
-            <p className="font-mono text-[10px] text-muted-foreground">{promptMeta}</p>
-          )}
-          {promptHits && (
-            <ul className="divide-y divide-border border border-border">
-              {promptHits.map((p, i) => (
-                <li
-                  key={`${p.track_id}-${i}`}
-                  className="flex items-center gap-3 px-3 py-2.5"
-                >
-                  <span className="w-6 font-mono text-xs text-primary">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <AlbumArt
-                    src={p.album_image_url}
-                    alt={p.album_name ?? ""}
-                    size="sm"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
-                      {p.track_name ?? p.track_id}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {p.artist_names ?? "Unknown"}
-                    </p>
-                  </div>
-                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                    {formatScore(p.score)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loadingMeta
-          ? Array.from({ length: 7 }).map((_, i) => (
+          ? Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-20" />
             ))
           : models.map((m) => (
@@ -321,14 +238,14 @@ function PredictInner() {
           <CardTitle>Listening window</CardTitle>
           <CardDescription>
             Multi-track windows blend classical models; prompted ranks against
-            the whole session prompt.
+            the whole session.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">Window</label>
             <Select value={windowId} onValueChange={(v) => v && setWindowId(v)}>
-              <SelectTrigger className="min-w-[200px]">
+              <SelectTrigger className="min-w-50">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -348,7 +265,7 @@ function PredictInner() {
                 value={seedId || undefined}
                 onValueChange={(v) => v && setSeedId(v)}
               >
-                <SelectTrigger className="min-w-[220px] max-w-sm">
+                <SelectTrigger className="min-w-55 max-w-sm">
                   <SelectValue placeholder="Latest play" />
                 </SelectTrigger>
                 <SelectContent>
@@ -398,11 +315,14 @@ function PredictInner() {
           </CardHeader>
           <CardContent>
             {pending && !result ? (
-              <Skeleton className="h-32 w-full rounded-3xl" />
+              <Skeleton className="h-32 w-full" />
             ) : result?.seeds?.length ? (
               <ul className="max-h-56 space-y-2 overflow-y-auto animate-fade-up">
                 {result.seeds.map((p, i) => (
-                  <li key={`${p.played_at}-${p.track_id}`} className="flex items-center gap-3">
+                  <li
+                    key={`${p.played_at}-${p.track_id}`}
+                    className="flex items-center gap-3"
+                  >
                     <span className="w-5 text-xs tabular-nums text-muted-foreground">
                       {i + 1}
                     </span>
@@ -412,7 +332,9 @@ function PredictInner() {
                       size="sm"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{p.track_name}</p>
+                      <p className="truncate text-sm font-medium">
+                        {p.track_name}
+                      </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {p.artist_names} · {formatPlayedAt(p.played_at)}
                       </p>
@@ -440,7 +362,7 @@ function PredictInner() {
               <>
                 <ChartContainer
                   config={scoreConfig}
-                  className="aspect-[16/9] w-full animate-fade-up"
+                  className="aspect-video w-full animate-fade-up"
                 >
                   <BarChart
                     data={chartData}
@@ -473,7 +395,9 @@ function PredictInner() {
                     />
                   </BarChart>
                 </ChartContainer>
-                <p className="meta-label mt-3">x · track &nbsp;·&nbsp; y · score</p>
+                <p className="meta-label mt-3">
+                  x · track &nbsp;·&nbsp; y · score
+                </p>
               </>
             )}
           </CardContent>
@@ -488,7 +412,7 @@ function PredictInner() {
           {result?.predictions.map((p, i) => (
             <div
               key={p.track_id}
-              className="flex items-center gap-4 rounded-2xl bg-muted/40 px-4 py-3 animate-fade-up"
+              className="flex items-center gap-4 bg-muted/40 px-4 py-3 animate-fade-up"
               style={{ animationDelay: `${i * 40}ms` }}
             >
               <span className="w-6 font-heading text-lg text-primary tabular-nums">
