@@ -72,12 +72,6 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
     return map;
   }, [points]);
 
-  const selected =
-    (selectedId && byId.get(selectedId)) ||
-    points.find((p) => p.kind === "neighbor") ||
-    null;
-  const focusId = hoveredId ?? selectedId;
-
   const neighbors = useMemo(
     () =>
       points
@@ -188,6 +182,10 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
     } catch {
       /* already released */
     }
+    // Clear after the click event so a finished pan doesn't poison later node clicks
+    window.setTimeout(() => {
+      skipClick.current = false;
+    }, 0);
   }
 
   function resetView() {
@@ -195,7 +193,28 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
     setPan({ x: 0, y: 0 });
   }
 
+  function focusPoint(p: SpacePoint) {
+    if (p.kind === "query") {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId(p.id);
+    // Center the track in the viewport (pixel projection, no CSS transform)
+    const radius = Math.min(size.w, size.h) * 0.4 * scaleRef.current;
+    if (radius > 0 && size.w > 0 && size.h > 0) {
+      setPan({
+        x: -p.x * radius,
+        y: -p.y * radius,
+      });
+    }
+  }
+
   const ready = size.w > 0 && size.h > 0;
+
+  // Only show an explicit selection in the focus panel — don't fake the top neighbor
+  const selected =
+    selectedId != null ? byId.get(selectedId) ?? null : null;
+  const focusId = hoveredId ?? selectedId;
 
   return (
     <div className={cn("grid gap-4 lg:grid-cols-[1fr_280px]", className)}>
@@ -217,7 +236,7 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
               <svg
                 width={size.w}
                 height={size.h}
-                className="absolute inset-0 block"
+                className="pointer-events-none absolute inset-0 block"
                 aria-hidden
               >
                 {[0.25, 0.5, 0.75, 1].map((r) => {
@@ -282,17 +301,23 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
                         ? query
                         : `${p.track_name ?? p.id} — ${p.artist_names ?? ""}`
                     }
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (skipClick.current) return;
-                      setSelectedId(isQuery ? null : p.id);
+                      focusPoint(p);
+                    }}
+                    onPointerDown={(e) => {
+                      // Don't let the viewport start a pan when pressing a node
+                      e.stopPropagation();
+                      skipClick.current = false;
                     }}
                     onMouseEnter={() => setHoveredId(p.id)}
                     onMouseLeave={() => setHoveredId(null)}
                     className={cn(
-                      "absolute cursor-pointer transition-opacity duration-200",
+                      "absolute z-10 cursor-pointer transition-opacity duration-200",
                       dimmed && "opacity-25",
                       isQuery && "z-20",
-                      isNeighbor && "z-10",
+                      (selectedId === p.id || hoveredId === p.id) && "z-30",
                     )}
                     style={{
                       left: x,
@@ -411,8 +436,8 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
             </div>
           ) : (
             <p className="mt-2 text-sm text-muted-foreground">
-              Click a neighbor to inspect. Distance ≈ embedding similarity to
-              “{query || "…"}”.
+              Click a track to center it and inspect. Distance ≈ embedding
+              similarity to “{query || "…"}”.
             </p>
           )}
         </div>
@@ -424,7 +449,7 @@ export function SpaceConstellation({ points, edges, query, className }: Props) {
               <li key={p.id}>
                 <button
                   type="button"
-                  onClick={() => setSelectedId(p.id)}
+                  onClick={() => focusPoint(p)}
                   onMouseEnter={() => setHoveredId(p.id)}
                   onMouseLeave={() => setHoveredId(null)}
                   className={cn(
