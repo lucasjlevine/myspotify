@@ -1,3 +1,3 @@
-from app.routers import auth, plays
+from app.routers import auth, plays, predict
 
-__all__ = ["auth", "plays"]
+__all__ = ["auth", "plays", "predict"]

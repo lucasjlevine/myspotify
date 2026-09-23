@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models import Play, Token
+
+UPSERT_BATCH_SIZE = 1000
 
 
 def save_tokens(
@@ -41,29 +43,31 @@ def upsert_plays(session: Session, plays: list[dict]) -> tuple[int, int]:
 
     collected_at = datetime.now(timezone.utc).isoformat()
     inserted = 0
-    skipped = 0
 
-    for play in plays:
+    for start in range(0, len(plays), UPSERT_BATCH_SIZE):
+        batch = plays[start : start + UPSERT_BATCH_SIZE]
+        rows = [
+            {
+                "played_at": play["played_at"],
+                "track_id": play["track_id"],
+                "track_name": play["track_name"],
+                "artist_names": play["artist_names"],
+                "album_name": play["album_name"],
+                "duration_ms": play["duration_ms"],
+                "context_uri": play.get("context_uri"),
+                "collected_at": collected_at,
+            }
+            for play in batch
+        ]
         statement = (
             sqlite_insert(Play)
-            .values(
-                played_at=play["played_at"],
-                track_id=play["track_id"],
-                track_name=play["track_name"],
-                artist_names=play["artist_names"],
-                album_name=play["album_name"],
-                duration_ms=play["duration_ms"],
-                context_uri=play.get("context_uri"),
-                collected_at=collected_at,
-            )
+            .values(rows)
             .on_conflict_do_nothing(index_elements=["played_at", "track_id"])
         )
         result = session.execute(statement)
-        if result.rowcount:
-            inserted += 1
-        else:
-            skipped += 1
+        inserted += int(result.rowcount or 0)
 
+    skipped = len(plays) - inserted
     return inserted, skipped
 
 
@@ -84,3 +88,7 @@ def list_plays(session: Session, limit: int = 50) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def count_plays(session: Session) -> int:
+    return int(session.scalar(select(func.count()).select_from(Play)) or 0)

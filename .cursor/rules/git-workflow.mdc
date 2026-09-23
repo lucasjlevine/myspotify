@@ -1,0 +1,15 @@
+---
+description: Git workflow after substantive work — branch, commit, PR, merge
+alwaysApply: true
+---
+
+# Git workflow
+
+After substantive changes (features, fixes, refactors, docs/rules that ship with code):
+
+1. Create a branch from up-to-date `main`: `feature/…`, `fix/…`, or `chore/…`
+2. Commit only relevant files (never `.env`, `*.db`, privacy-export JSON, model artifacts)
+3. Push with `-u` and open a PR via `gh pr create`
+4. Merge into `main` when checks/review pass (`gh pr merge`), then switch back to `main` and pull
+
+Do not commit directly on `main` for substantive work. Do not force-push `main`. Skip this flow only for trivial one-line typos when the user says so.
