@@ -39,9 +39,11 @@ import {
   listPlays,
   localTzOffsetMinutes,
   predictNext,
+  searchByPrompt,
   type ModelInfo,
   type Play,
   type PredictResponse,
+  type Prediction,
   type WindowPreset,
 } from "@/lib/api";
 import { formatPlayedAt, formatScore } from "@/lib/format";
@@ -82,9 +84,13 @@ function PredictInner() {
     searchParams.get("track_id") ?? "",
   );
   const [result, setResult] = useState<PredictResponse | null>(null);
+  const [prompt, setPrompt] = useState("Rainy fall day");
+  const [promptHits, setPromptHits] = useState<Prediction[] | null>(null);
+  const [promptMeta, setPromptMeta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [promptPending, startPrompt] = useTransition();
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +105,7 @@ function PredictInner() {
         if (modelsRes.windows?.length) setWindows(modelsRes.windows);
         setDefaultModel(modelsRes.default);
         const preferred =
+          modelsRes.models.find((m) => m.id === "embedding" && m.trained)?.id ??
           modelsRes.models.find((m) => m.id === "prompted" && m.trained)?.id ??
           modelsRes.default;
         setModel(preferred);
@@ -139,6 +146,32 @@ function PredictInner() {
     });
   }, [k, model, seedId, windowId]);
 
+  function runPromptSearch() {
+    setError(null);
+    startPrompt(async () => {
+      try {
+        const res = await searchByPrompt({
+          q: prompt,
+          k,
+          model: "embedding",
+        });
+        setPromptHits(res.predictions);
+        setPromptMeta(
+          res.model.dim
+            ? `${res.model.backend} · ${res.model.dim}-d · ${res.model.n_tracks?.toLocaleString()} tracks`
+            : null,
+        );
+      } catch (err) {
+        setPromptHits(null);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Prompt search failed — train embedding model first",
+        );
+      }
+    });
+  }
+
   useEffect(() => {
     if (loadingMeta) return;
     const trained = models.some((m) => m.id === model && m.trained);
@@ -166,25 +199,87 @@ function PredictInner() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8 animate-fade-up">
       <div>
-        <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
+        <p className="meta-label">models</p>
+        <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
           Predict
         </h1>
-        <p className="mt-1 text-muted-foreground">
-          Seed from a listening window — playlist order matters less when we
-          blend recent context. Try the local <span className="text-primary">prompted</span> model.
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          Seed from a listening window, or describe a mood —{" "}
+          <span className="text-primary">embedding</span> maps tracks into a
+          local vector space for neighbors and phrase search.
         </p>
       </div>
 
       {error && (
-        <p className="rounded-2xl bg-destructive/15 px-4 py-3 text-sm text-destructive">
+        <p className="border border-destructive/40 bg-destructive/10 px-4 py-3 font-mono text-xs text-destructive">
           {error}
         </p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Mood prompt</CardTitle>
+          <CardDescription>
+            free-text → nearest tracks in embedding space (local ONNX)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") runPromptSearch();
+              }}
+              placeholder='e.g. "Rainy fall day" or "late night drive"'
+              className="min-w-[240px] flex-1 border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-primary"
+            />
+            <Button onClick={runPromptSearch} disabled={promptPending || !prompt.trim()}>
+              {promptPending && <Loader2 className="size-4 animate-spin" />}
+              Search space
+            </Button>
+          </div>
+          {promptMeta && (
+            <p className="font-mono text-[10px] text-muted-foreground">{promptMeta}</p>
+          )}
+          {promptHits && (
+            <ul className="divide-y divide-border border border-border">
+              {promptHits.map((p, i) => (
+                <li
+                  key={`${p.track_id}-${i}`}
+                  className="flex items-center gap-3 px-3 py-2.5"
+                >
+                  <span className="w-6 font-mono text-xs text-primary">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <AlbumArt
+                    src={p.album_image_url}
+                    alt={p.album_name ?? ""}
+                    size="sm"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {p.track_name ?? p.track_id}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {p.artist_names ?? "Unknown"}
+                    </p>
+                  </div>
+                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {formatScore(p.score)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {loadingMeta
-          ? Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 rounded-4xl" />
+          ? Array.from({ length: 7 }).map((_, i) => (
+              <Skeleton key={i} className="h-20" />
             ))
           : models.map((m) => (
               <button
@@ -192,9 +287,9 @@ function PredictInner() {
                 type="button"
                 onClick={() => setModel(m.id)}
                 className={cn(
-                  "rounded-4xl bg-card p-4 text-left ring-1 ring-foreground/10 transition-all",
-                  model === m.id && "ring-2 ring-primary",
-                  !m.trained && "opacity-60",
+                  "border border-border bg-card p-4 text-left transition-colors",
+                  model === m.id && "border-primary",
+                  !m.trained && "opacity-55",
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -203,9 +298,9 @@ function PredictInner() {
                     {m.trained ? "ok" : "—"}
                   </Badge>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                   {m.backend
-                    ? m.backend
+                    ? `${m.backend}${m.dim ? ` · ${m.dim}d` : ""}`
                     : m.n_plays != null
                       ? `${m.n_plays.toLocaleString()} plays`
                       : m.id === defaultModel

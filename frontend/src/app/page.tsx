@@ -262,7 +262,12 @@ export default function OverviewPage() {
               <CardTitle>Top tracks</CardTitle>
               <CardDescription>Most played in your library</CardDescription>
             </div>
-            <Button variant="ghost" size="sm" render={<Link href="/tops/tracks" />}>
+            <Button
+              variant="ghost"
+              size="sm"
+              nativeButton={false}
+              render={<Link href="/tops/tracks" />}
+            >
               See all
               <ArrowRight className="size-4" />
             </Button>
@@ -305,7 +310,12 @@ export default function OverviewPage() {
               <CardTitle>Top artists</CardTitle>
               <CardDescription>Who you return to most</CardDescription>
             </div>
-            <Button variant="ghost" size="sm" render={<Link href="/tops/artists" />}>
+            <Button
+              variant="ghost"
+              size="sm"
+              nativeButton={false}
+              render={<Link href="/tops/artists" />}
+            >
               See all
               <ArrowRight className="size-4" />
             </Button>

@@ -78,7 +78,7 @@ def _track_meta_map(session: Session, track_ids: list[str]) -> dict[str, dict]:
 
 
 def _read_model_meta(model_id: str) -> dict:
-    if model_id in ("item_knn", "prompted"):
+    if model_id in ("item_knn", "prompted", "embedding"):
         meta_file = metadata_path(model_id)
         if meta_file.exists():
             import json
@@ -148,7 +148,9 @@ def _blend_predictions(
     k: int,
 ) -> list[tuple[str, float]]:
     """Recency-weighted blend of per-seed predictions for classical models."""
-    if len(plays) == 1 or getattr(predictor, "model_id", "") == "prompted":
+    model_id = getattr(predictor, "model_id", "")
+    # Sequence-aware models consume the full window in one predict call
+    if len(plays) == 1 or model_id in ("prompted", "embedding"):
         ctx = _context_from_plays(plays)
         return predictor.predict(ctx, k=k)
 
@@ -230,5 +232,47 @@ def predict_next(
         "seeds": seed_dicts,
         "window": window,
         "model": model_info,
+        "predictions": predictions,
+    }
+
+
+def search_by_prompt(q: str, *, k: int = 10, model: str = "embedding") -> dict:
+    """Nearest tracks to a free-text mood/phrase in embedding space."""
+    text = (q or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="empty_query")
+
+    if model not in list_model_ids():
+        raise HTTPException(status_code=400, detail=f"unknown_model:{model}")
+
+    predictor = load_predictor(model)
+    search = getattr(predictor, "search_text", None)
+    if search is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"model_no_text_search:{model} — use model=embedding",
+        )
+
+    ranked = search(text, k=k)
+    with session_scope() as session:
+        meta = _track_meta_map(session, [tid for tid, _ in ranked])
+
+    predictions = []
+    for tid, score in ranked:
+        item = {"track_id": tid, "score": score}
+        item.update(meta.get(tid, {}))
+        predictions.append(item)
+
+    return {
+        "query": text,
+        "model": {
+            "id": model,
+            "path": str(artifact_path(model)),
+            "backend": getattr(predictor, "backend", None),
+            "model_name": getattr(predictor, "model_name", None),
+            "trained_at": getattr(predictor, "trained_at", None),
+            "n_tracks": getattr(predictor, "n_tracks", None),
+            "dim": getattr(predictor, "dim", None),
+        },
         "predictions": predictions,
     }

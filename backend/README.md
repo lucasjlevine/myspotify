@@ -64,18 +64,20 @@ curl -X POST "http://127.0.0.1:8000/tracks/enrich-images?batches=20"
 | `artist` | Other tracks by the same artist |
 | `cooccurrence` | Tracks that co-appear in a ±5 play window |
 | `item_knn` | sklearn cosine kNN on co-occurrence vectors |
-| `prompted` | Local TF-IDF ranker over a listening-window prompt (expandable to local LLM) |
+| `prompted` | Local TF-IDF ranker over a listening-window prompt |
+| `embedding` | Local ONNX song-space (fastembed); neighbors + free-text mood prompts |
 
 ```bash
 uv run python -m app.ml.train              # all models
 uv run python -m app.ml.train --model markov
 uv run python -m app.ml.train --model prompted
+uv run python -m app.ml.train --model embedding
 curl "http://127.0.0.1:8000/predict/models"
-curl "http://127.0.0.1:8000/predict/next?k=8&model=prompted&window=hours_4&tz_offset_minutes=-240"
-curl "http://127.0.0.1:8000/predict/next?k=5&model=markov&window=today"
+curl "http://127.0.0.1:8000/predict/next?k=8&model=embedding&window=hours_4&tz_offset_minutes=-240"
+curl "http://127.0.0.1:8000/predict/prompt?q=Rainy%20fall%20day&k=10"
 ```
 
-Artifacts under `data/models/` (gitignored). Windows: `latest`, `hours_4`, `today`, `plays_10`, `plays_20` (or `hours:N` / `plays:N`). Classical models blend seeds with recency weights; `prompted` uses the full window as one prompt.
+Artifacts under `data/models/` (gitignored). Windows: `latest`, `hours_4`, `today`, `plays_10`, `plays_20` (or `hours:N` / `plays:N`). Classical models blend seeds with recency weights; `prompted` / `embedding` use the full window. Phrase search uses the same embedding space via `/predict/prompt`.
 
 ## Endpoints
 
@@ -90,6 +92,7 @@ Artifacts under `data/models/` (gitignored). Windows: `latest`, `hours_4`, `toda
 | `GET` | `/predict/models` | List predictors + windows + train status |
 | `GET` | `/predict/windows` | Window presets |
 | `GET` | `/predict/next?k=5&model=markov&window=hours_4` | Predict next track(s) |
+| `GET` | `/predict/prompt?q=…&k=10` | Mood/phrase → nearest tracks (`embedding`) |
 | `GET` | `/stats/summary` | Listening totals |
 | `GET` | `/stats/top-tracks` | Most-played tracks |
 | `GET` | `/stats/top-artists` | Most-played artists |

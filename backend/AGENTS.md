@@ -39,6 +39,7 @@ From repo root: `npm run dev` (backend + frontend).
 - OAuth success redirects to `FRONTEND_URL/auth/callback`
 - Predict windows: `latest` | `hours_4` | `today` | `plays_N` (blend classical; prompted uses full window)
 - `prompted` is local TF-IDF today — keep the prompt builder so an Ollama backend can plug in later
+- `embedding` is a local fastembed (ONNX) song-space: window neighbors + `GET /predict/prompt?q=…`
 - Album art: `album_image_url` on plays; `POST /tracks/enrich-images` backfills via Spotify
 
 ## Do not commit

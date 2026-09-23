@@ -146,6 +146,7 @@ export default function TopTracksPage() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      nativeButton={false}
                       render={
                         <Link
                           href={`/predict?track_id=${t.track_id}&window=latest`}
@@ -158,6 +159,7 @@ export default function TopTracksPage() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      nativeButton={false}
                       render={
                         <a
                           href={spotifyTrackUrl(t.track_id)}

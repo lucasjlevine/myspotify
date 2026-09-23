@@ -31,6 +31,8 @@ export type ModelInfo = {
   n_transitions?: number;
   n_tracks?: number;
   backend?: string;
+  dim?: number;
+  model_name?: string;
 };
 
 export type WindowPreset = {
@@ -65,6 +67,20 @@ export type PredictResponse = {
     n_plays?: number | null;
     n_transitions?: number;
     backend?: string;
+  };
+  predictions: Prediction[];
+};
+
+export type PromptSearchResponse = {
+  query: string;
+  model: {
+    id: string;
+    path: string;
+    backend?: string | null;
+    model_name?: string | null;
+    trained_at?: string | null;
+    n_tracks?: number | null;
+    dim?: number | null;
   };
   predictions: Prediction[];
 };

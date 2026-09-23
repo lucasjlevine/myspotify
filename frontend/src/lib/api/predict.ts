@@ -1,5 +1,10 @@
 import { apiFetch } from "./client";
-import type { ModelsResponse, PredictResponse, WindowPreset } from "./types";
+import type {
+  ModelsResponse,
+  PredictResponse,
+  PromptSearchResponse,
+  WindowPreset,
+} from "./types";
 
 export function listModels() {
   return apiFetch<ModelsResponse>("/predict/models");
@@ -27,4 +32,16 @@ export function predictNext(opts: {
     params.set("tz_offset_minutes", String(opts.tzOffsetMinutes));
   }
   return apiFetch<PredictResponse>(`/predict/next?${params.toString()}`);
+}
+
+export function searchByPrompt(opts: {
+  q: string;
+  k?: number;
+  model?: string;
+}) {
+  const params = new URLSearchParams();
+  params.set("q", opts.q);
+  params.set("k", String(opts.k ?? 10));
+  params.set("model", opts.model ?? "embedding");
+  return apiFetch<PromptSearchResponse>(`/predict/prompt?${params.toString()}`);
 }

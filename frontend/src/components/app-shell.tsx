@@ -159,7 +159,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             {!authorized && authorized !== null && (
-              <Button size="sm" render={<a href={connectSpotifyUrl()} />}>
+              <Button
+                size="sm"
+                nativeButton={false}
+                render={<a href={connectSpotifyUrl()} />}
+              >
                 Connect Spotify
               </Button>
             )}

@@ -6,6 +6,7 @@ from pathlib import Path
 from app.config import DATA_DIR
 from app.ml.artist import ArtistPredictor
 from app.ml.cooccurrence import CooccurrencePredictor
+from app.ml.embedding import EmbeddingPredictor
 from app.ml.item_knn import ItemKnnPredictor
 from app.ml.markov import MarkovPredictor
 from app.ml.popularity import PopularityPredictor
@@ -23,11 +24,12 @@ REGISTRY: dict[str, Factory] = {
     "cooccurrence": CooccurrencePredictor,
     "item_knn": ItemKnnPredictor,
     "prompted": PromptedPredictor,
+    "embedding": EmbeddingPredictor,
 }
 
 DEFAULT_MODEL_ID = "markov"
 
-_BINARY_MODELS = {"item_knn", "prompted"}
+_BINARY_MODELS = {"item_knn", "prompted", "embedding"}
 
 
 def list_model_ids() -> list[str]:
