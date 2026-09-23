@@ -1,13 +1,22 @@
 import logging
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
 from app.config import settings
+from app.database import session_scope
+from app import repositories
 from app.spotify import auth, sync
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
+
+
+def _frontend_callback(status: str, **extra: str) -> RedirectResponse:
+    params = {"status": status, **extra}
+    url = f"{settings.frontend_url.rstrip('/')}/auth/callback?{urlencode(params)}"
+    return RedirectResponse(url=url)
 
 
 @router.get("/authorize")
@@ -22,25 +31,36 @@ def authorize_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ):
-    """Handle Spotify's redirect: validate state and exchange code for tokens."""
+    """Handle Spotify's redirect: validate state, exchange code, send user to frontend."""
     if state != settings.spotify_state:
-        raise HTTPException(status_code=400, detail="state_mismatch")
+        return _frontend_callback("error", reason="state_mismatch")
     if error is not None:
-        raise HTTPException(status_code=400, detail=error)
+        return _frontend_callback("error", reason=error)
     if code is None:
-        raise HTTPException(status_code=400, detail="missing_code")
+        return _frontend_callback("error", reason="missing_code")
 
-    payload = auth.exchange_authorization_code(code)
-
-    sync_result = None
     try:
-        sync_result = sync.sync_recently_played()
-    except HTTPException as exc:
-        logger.warning("post-auth sync failed: %s", exc.detail)
+        auth.exchange_authorization_code(code)
+    except Exception:
+        logger.exception("token exchange failed")
+        return _frontend_callback("error", reason="token_exchange_failed")
 
-    return {
-        "status": "authorized",
-        "expires_in": payload.get("expires_in"),
-        "scope": payload.get("scope"),
-        "sync": sync_result,
-    }
+    try:
+        sync.sync_recently_played()
+    except Exception as sync_exc:
+        logger.warning("post-auth sync failed: %s", sync_exc)
+
+    return _frontend_callback("authorized")
+
+
+@router.get("/auth/status")
+def auth_status():
+    """Return whether Spotify tokens are present (never returns token values)."""
+    with session_scope() as session:
+        token = repositories.get_tokens(session)
+        if token is None and not settings.spotify_refresh_token:
+            return {"authorized": False}
+        return {
+            "authorized": True,
+            "expires_at": token.expires_at if token is not None else None,
+        }

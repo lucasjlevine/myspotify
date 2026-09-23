@@ -127,6 +127,7 @@ def predict_next(
     *,
     model: str = DEFAULT_MODEL_ID,
     path: Path | None = None,
+    track_id: str | None = None,
 ) -> dict:
     if path is not None:
         # Legacy/test override: load markov-style from explicit path via given model class
@@ -138,27 +139,40 @@ def predict_next(
         model_id = model
 
     with session_scope() as session:
-        latest = _latest_play(session)
-        if latest is None:
-            raise HTTPException(
-                status_code=404,
-                detail="no_plays: sync listening history before predicting",
-            )
+        if track_id is not None:
+            seed = session.scalars(
+                select(Play)
+                .where(Play.track_id == track_id)
+                .order_by(Play.played_at.desc())
+                .limit(1)
+            ).first()
+            if seed is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"unknown_track:{track_id}",
+                )
+        else:
+            seed = _latest_play(session)
+            if seed is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="no_plays: sync listening history before predicting",
+                )
 
-        context_play = _play_to_dict(latest)
+        context_play = _play_to_dict(seed)
         context = PredictContext(
-            track_id=latest.track_id,
-            artist_names=latest.artist_names or "",
-            album_name=latest.album_name or "",
-            played_at=latest.played_at,
+            track_id=seed.track_id,
+            artist_names=seed.artist_names or "",
+            album_name=seed.album_name or "",
+            played_at=seed.played_at,
         )
         ranked = predictor.predict(context, k=k)
-        meta = _track_meta_map(session, [track_id for track_id, _ in ranked])
+        meta = _track_meta_map(session, [tid for tid, _ in ranked])
 
     predictions = []
-    for track_id, score in ranked:
-        item = {"track_id": track_id, "score": score}
-        item.update(meta.get(track_id, {}))
+    for tid, score in ranked:
+        item = {"track_id": tid, "score": score}
+        item.update(meta.get(tid, {}))
         predictions.append(item)
 
     model_info = {

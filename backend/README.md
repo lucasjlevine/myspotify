@@ -13,6 +13,7 @@ SPOTIFY_CLIENT_SECRET=<dashboard>
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/authorize/callback
 SPOTIFY_REFRESH_TOKEN=
 SPOTIFY_API_SCOPE=user-read-email user-read-private user-top-read user-read-recently-played user-read-playback-state user-read-currently-playing user-library-read playlist-read-private playlist-read-collaborative user-follow-read
+FRONTEND_URL=http://localhost:3000
 ```
 
 2. Spotify Dashboard redirect URI must match exactly (`127.0.0.1`, not `localhost`).
@@ -59,20 +60,28 @@ uv run python -m app.ml.train              # all models
 uv run python -m app.ml.train --model markov
 curl "http://127.0.0.1:8000/predict/models"
 curl "http://127.0.0.1:8000/predict/next?k=5&model=item_knn"
+curl "http://127.0.0.1:8000/predict/next?k=5&model=markov&track_id=<spotify_track_id>"
 ```
 
-Artifacts under `data/models/` (gitignored). Context = most recent stored play.
+Artifacts under `data/models/` (gitignored). Context defaults to the most recent stored play; pass `track_id` to seed from a specific track.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/health` | Liveness |
 | `GET` | `/authorize` | Start OAuth |
-| `GET` | `/authorize/callback` | Store tokens |
+| `GET` | `/authorize/callback` | Store tokens, redirect to frontend |
+| `GET` | `/auth/status` | Whether authorized (no tokens) |
 | `POST` | `/sync/plays` | Fetch & upsert recent plays |
 | `GET` | `/plays?limit=50` | List stored plays |
 | `GET` | `/predict/models` | List predictors + train status |
-| `GET` | `/predict/next?k=5&model=markov` | Predict next track(s) |
+| `GET` | `/predict/next?k=5&model=markov&track_id=` | Predict next track(s) |
+| `GET` | `/stats/summary` | Listening totals |
+| `GET` | `/stats/top-tracks` | Most-played tracks |
+| `GET` | `/stats/top-artists` | Most-played artists |
+| `GET` | `/stats/listening-by-hour` | Plays by hour of day |
+| `GET` | `/stats/listening-by-day?days=30` | Daily play counts |
 
 ## Layout
 

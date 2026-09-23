@@ -10,4 +10,5 @@ Personal Spotify stack: `backend/` (FastAPI + play history + next-song ML) and `
 - Closest `AGENTS.md` wins (`backend/AGENTS.md`, `frontend/AGENTS.md`).
 - Never commit secrets, `.env`, SQLite DBs, trained models, or Spotify privacy-export data.
 - Prefer small focused modules; keep `backend/main.py` thin.
-- Run backend from `backend/`: `uv sync`, `uv run main.py`.
+- Run both from repo root: `npm run install:all` then `npm run dev`.
+- Run backend alone from `backend/`: `uv sync`, `uv run main.py`.

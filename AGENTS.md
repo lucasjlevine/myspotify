@@ -7,13 +7,17 @@ Monorepo: `backend/` (FastAPI) + `frontend/` (Next.js).
 ## Commands
 
 ```bash
-# Backend
+# Both (from repo root)
+npm run install:all
+npm run dev
+
+# Backend only
 cd backend && uv sync && uv run main.py
 cd backend && uv run python -m app.import_history
 cd backend && uv run python -m app.ml.train
 uv run python -m app.ml.train --model item_knn
 
-# Frontend
+# Frontend only
 cd frontend && npm install && npm run dev
 ```
 
