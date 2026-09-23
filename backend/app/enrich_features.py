@@ -81,13 +81,14 @@ def main() -> None:
         if not missing:
             print(
                 f"Done — meta {coverage['with_meta']}/{coverage['unique_tracks']} "
-                f"features {coverage['with_features']} genres {coverage['with_genres']}"
+                f"features {coverage['with_features']} genres {coverage['with_genres']}",
+                flush=True,
             )
             break
         try:
             written = enrich_batch(missing, genres_only=args.genres_only)
         except Exception as exc:  # noqa: BLE001 — keep batching through transient API errors
-            print(f"[{i + 1}/{args.batches}] batch failed: {exc}")
+            print(f"[{i + 1}/{args.batches}] batch failed: {exc}", flush=True)
             time.sleep(max(args.sleep, 1.0))
             continue
         total += written
@@ -96,11 +97,12 @@ def main() -> None:
         print(
             f"[{i + 1}/{args.batches}] enriched={written} "
             f"meta={coverage['with_meta']}/{coverage['unique_tracks']} "
-            f"features={coverage['with_features']} genres={coverage['with_genres']}"
+            f"features={coverage['with_features']} genres={coverage['with_genres']}",
+            flush=True,
         )
         if args.sleep > 0:
             time.sleep(args.sleep)
-    print(f"Total enriched rows={total}")
+    print(f"Total enriched rows={total}", flush=True)
 
 
 if __name__ == "__main__":
