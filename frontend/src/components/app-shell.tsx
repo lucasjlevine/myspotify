@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState, useTransition } from "react";
 import {
-  Activity,
   History,
   LayoutDashboard,
   Loader2,
@@ -15,7 +14,6 @@ import {
 } from "lucide-react";
 import { connectSpotifyUrl, getAuthStatus, getHealth, syncPlays } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -42,14 +40,14 @@ function AuthBanner() {
 
   if (connected) {
     return (
-      <p className="mb-4 rounded-2xl bg-primary/15 px-4 py-3 text-sm text-primary animate-fade-up">
+      <p className="mb-4 border border-primary/40 bg-primary/10 px-4 py-3 font-mono text-xs text-primary animate-fade-up">
         Spotify connected. Sync pulls recent plays into your library.
       </p>
     );
   }
   if (authError) {
     return (
-      <p className="mb-4 rounded-2xl bg-destructive/15 px-4 py-3 text-sm text-destructive animate-fade-up">
+      <p className="mb-4 border border-destructive/40 bg-destructive/10 px-4 py-3 font-mono text-xs text-destructive animate-fade-up">
         Connect failed: {authError}
       </p>
     );
@@ -90,7 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       try {
         const result = await syncPlays();
         setSyncMessage(
-          `Synced ${result.fetched} · +${result.inserted} new · ${result.skipped} skipped`,
+          `synced ${result.fetched} · +${result.inserted} · ${result.skipped} skip`,
         );
         refreshStatus();
       } catch (err) {
@@ -103,17 +101,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-full flex-1">
-      <aside className="sticky top-0 flex h-svh w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar/80 px-3 py-6 backdrop-blur-md">
-        <Link href="/" className="group mb-8 px-2">
-          <p className="font-heading text-2xl font-semibold tracking-tight text-primary transition-transform duration-300 group-hover:translate-x-0.5">
-            myspotify
+      <aside className="sticky top-0 flex h-svh w-52 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-6">
+        <Link href="/" className="mb-10 px-2">
+          <p className="font-heading text-[1.65rem] leading-none tracking-tight text-foreground">
+            my<span className="text-primary">spotify</span>
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            listening + next-song
-          </p>
+          <p className="meta-label mt-2">listening · predict</p>
         </Link>
 
-        <nav className="flex flex-1 flex-col gap-1">
+        <nav className="flex flex-1 flex-col gap-0.5">
           {nav.map(({ href, label, icon: Icon }) => {
             const active =
               href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -122,43 +118,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={href}
                 href={href}
                 className={cn(
-                  "relative flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-2.5 border-l-2 px-3 py-2 text-sm transition-colors",
                   active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                    ? "border-primary bg-sidebar-accent text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                 )}
               >
-                {active && (
-                  <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary transition-all" />
-                )}
-                <Icon className="size-4 shrink-0" />
+                <Icon className="size-3.5 shrink-0 opacity-70" />
                 <span className="truncate">{label}</span>
               </Link>
             );
           })}
         </nav>
 
-        <div className="mt-auto space-y-2 px-1 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <Activity className="size-3.5" />
-            API{" "}
-            {apiOk === null ? "…" : apiOk ? "online" : "offline"}
-          </div>
+        <div className="mt-auto border-t border-border px-2 pt-3 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+          api {apiOk === null ? "…" : apiOk ? "online" : "offline"}
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border/60 bg-background/70 px-6 py-3 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <Badge variant={authorized ? "default" : "secondary"}>
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-background/95 px-6 py-2.5">
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "font-mono text-[10px] tracking-widest uppercase",
+                authorized ? "text-primary" : "text-muted-foreground",
+              )}
+            >
               {authorized === null
-                ? "Checking…"
+                ? "status · …"
                 : authorized
-                  ? "Connected"
-                  : "Not connected"}
-            </Badge>
+                  ? "status · connected"
+                  : "status · offline"}
+            </span>
             {syncMessage && (
-              <span className="hidden text-xs text-muted-foreground sm:inline animate-fade-up">
+              <span className="hidden font-mono text-[10px] text-muted-foreground sm:inline animate-fade-up">
                 {syncMessage}
               </span>
             )}
@@ -185,7 +179,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 px-6 py-8">
+        <main className="flex-1 px-6 py-8 md:px-10">
           <Suspense fallback={null}>
             <AuthBanner />
           </Suspense>

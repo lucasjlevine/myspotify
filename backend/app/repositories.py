@@ -95,11 +95,11 @@ def fill_missing_album_images(session: Session, plays: list[dict]) -> int:
 
 
 def apply_album_images(session: Session, mapping: dict[str, str]) -> int:
-    updated = 0
+    applied = 0
     for track_id, url in mapping.items():
         if not url:
             continue
-        result = session.execute(
+        session.execute(
             update(Play)
             .where(Play.track_id == track_id)
             .where(
@@ -107,20 +107,66 @@ def apply_album_images(session: Session, mapping: dict[str, str]) -> int:
             )
             .values(album_image_url=url)
         )
-        updated += int(result.rowcount or 0)
-    return updated
+        applied += 1
+    return applied
 
 
-def track_ids_missing_images(session: Session, limit: int = 200) -> list[str]:
+def track_ids_missing_images(
+    session: Session,
+    limit: int = 200,
+    *,
+    prioritize: str = "plays",
+    track_ids: list[str] | None = None,
+) -> list[str]:
+    """Return track ids missing art. Default: most-played first."""
+    missing = (Play.album_image_url.is_(None)) | (Play.album_image_url == "")
+    if track_ids:
+        rows = session.execute(
+            select(Play.track_id)
+            .where(Play.track_id.in_(track_ids))
+            .where(missing)
+            .group_by(Play.track_id)
+            .limit(limit)
+        ).all()
+        return [row[0] for row in rows]
+
+    if prioritize == "plays":
+        rows = session.execute(
+            select(Play.track_id, func.count().label("n"))
+            .where(missing)
+            .group_by(Play.track_id)
+            .order_by(func.count().desc())
+            .limit(limit)
+        ).all()
+        return [row[0] for row in rows]
+
     rows = session.execute(
         select(Play.track_id)
-        .where(
-            (Play.album_image_url.is_(None)) | (Play.album_image_url == "")
-        )
+        .where(missing)
         .group_by(Play.track_id)
         .limit(limit)
     ).all()
     return [row[0] for row in rows]
+
+
+def image_coverage(session: Session) -> dict:
+    total_tracks = int(
+        session.scalar(select(func.count(func.distinct(Play.track_id)))) or 0
+    )
+    with_image = int(
+        session.scalar(
+            select(func.count(func.distinct(Play.track_id))).where(
+                Play.album_image_url.isnot(None),
+                Play.album_image_url != "",
+            )
+        )
+        or 0
+    )
+    return {
+        "unique_tracks": total_tracks,
+        "with_image": with_image,
+        "missing": max(0, total_tracks - with_image),
+    }
 
 
 def _serialize_play(row: Play) -> dict:

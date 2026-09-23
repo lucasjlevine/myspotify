@@ -8,7 +8,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: var(--font-mono);
   --font-heading: var(--font-heading);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -39,72 +39,107 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 6px);
+  --radius-3xl: calc(var(--radius) + 8px);
+  --radius-4xl: calc(var(--radius) + 10px);
 }
 
 :root,
 .dark {
-  /* Near-black Spotify surfaces + personal green accent */
-  --background: oklch(0.12 0.01 145);
-  --foreground: oklch(0.97 0.01 145);
-  --card: oklch(0.17 0.012 145);
-  --card-foreground: oklch(0.97 0.01 145);
-  --popover: oklch(0.17 0.012 145);
-  --popover-foreground: oklch(0.97 0.01 145);
-  --primary: oklch(0.72 0.19 145);
-  --primary-foreground: oklch(0.14 0.02 145);
-  --secondary: oklch(0.22 0.015 145);
-  --secondary-foreground: oklch(0.97 0.01 145);
-  --muted: oklch(0.22 0.012 145);
-  --muted-foreground: oklch(0.7 0.02 145);
-  --accent: oklch(0.24 0.03 145);
-  --accent-foreground: oklch(0.97 0.01 145);
-  --destructive: oklch(0.65 0.2 25);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.72 0.19 145);
-  --chart-1: oklch(0.72 0.19 145);
-  --chart-2: oklch(0.78 0.12 180);
-  --chart-3: oklch(0.82 0.1 95);
-  --chart-4: oklch(0.65 0.08 220);
-  --chart-5: oklch(0.55 0.06 145);
-  --radius: 0.75rem;
-  --sidebar: oklch(0.1 0.01 145);
-  --sidebar-foreground: oklch(0.97 0.01 145);
-  --sidebar-primary: oklch(0.72 0.19 145);
-  --sidebar-primary-foreground: oklch(0.14 0.02 145);
-  --sidebar-accent: oklch(0.18 0.02 145);
-  --sidebar-accent-foreground: oklch(0.97 0.01 145);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.72 0.19 145);
+  --background: #0c0e0c;
+  --foreground: #e8ebe4;
+  --card: #121512;
+  --card-foreground: #e8ebe4;
+  --popover: #121512;
+  --popover-foreground: #e8ebe4;
+  --primary: #3dd68c;
+  --primary-foreground: #06140c;
+  --secondary: #1a1f1a;
+  --secondary-foreground: #e8ebe4;
+  --muted: #181c18;
+  --muted-foreground: #8b9588;
+  --accent: #1a221c;
+  --accent-foreground: #e8ebe4;
+  --destructive: #e85d4c;
+  --border: #2a322a;
+  --input: #2a322a;
+  --ring: #3dd68c;
+  --chart-1: #3dd68c;
+  --chart-2: #7ec8a3;
+  --chart-3: #c4b59a;
+  --chart-4: #6b8f71;
+  --chart-5: #4a5d4e;
+  --radius: 0.15rem;
+  --sidebar: #0a0c0a;
+  --sidebar-foreground: #e8ebe4;
+  --sidebar-primary: #3dd68c;
+  --sidebar-primary-foreground: #06140c;
+  --sidebar-accent: #151a15;
+  --sidebar-accent-foreground: #e8ebe4;
+  --sidebar-border: #2a322a;
+  --sidebar-ring: #3dd68c;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
   body {
     @apply bg-background text-foreground antialiased;
+    background-color: var(--background);
     background-image:
-      radial-gradient(ellipse 80% 50% at 10% -10%, oklch(0.35 0.08 145 / 0.35), transparent),
-      radial-gradient(ellipse 60% 40% at 90% 0%, oklch(0.25 0.04 180 / 0.25), transparent);
-    background-attachment: fixed;
+      radial-gradient(circle at 1px 1px, oklch(1 0 0 / 0.045) 1px, transparent 0);
+    background-size: 22px 22px;
   }
   html {
     @apply font-sans;
   }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+    color: var(--foreground);
+  }
+}
+
+/* Sharpen default shadcn chrome — less pill, less soft shadow */
+[data-slot="card"] {
+  border-radius: var(--radius) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+[data-slot="button"] {
+  border-radius: var(--radius) !important;
+}
+
+[data-slot="badge"] {
+  border-radius: 2px !important;
+}
+
+[data-slot="select-trigger"] {
+  border-radius: var(--radius) !important;
+}
+
+.panel-rule {
+  border-top: 1px solid var(--border);
+}
+
+.meta-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -113,5 +148,5 @@
 }
 
 .animate-fade-up {
-  animation: fade-up 0.45s ease-out both;
+  animation: fade-up 0.35s ease-out both;
 }

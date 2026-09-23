@@ -1,17 +1,25 @@
 import type { Metadata } from "next";
-import { Outfit, Syne } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
-const outfit = Outfit({
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   variable: "--font-sans",
 });
 
-const syne = Syne({
+const newsreader = Newsreader({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   variable: "--font-heading",
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono",
 });
 
 export const metadata: Metadata = {
@@ -23,7 +31,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={cn("dark h-full", outfit.variable, syne.variable, "font-sans")}
+      className={cn(
+        "dark h-full",
+        plexSans.variable,
+        newsreader.variable,
+        plexMono.variable,
+        "font-sans",
+      )}
     >
       <body className="min-h-full flex flex-col">
         <AppShell>{children}</AppShell>

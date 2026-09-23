@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { ImagePlus, Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { AlbumArt } from "@/components/album-art";
+import { EnrichArtButton } from "@/components/enrich-art-button";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { enrichAlbumImages, listPlays, syncPlays, type Play } from "@/lib/api";
+import { listPlays, syncPlays, type Play } from "@/lib/api";
 import { formatPlayedAt } from "@/lib/format";
 
 export default function HistoryPage() {
@@ -61,40 +62,29 @@ export default function HistoryPage() {
     });
   }
 
-  function handleEnrich() {
-    setMessage(null);
-    startTransition(async () => {
-      try {
-        const res = await enrichAlbumImages(100);
-        setMessage(`Art: fetched ${res.fetched} · updated ${res.updated}`);
-        load();
-      } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Enrich failed");
-      }
-    });
-  }
+  const missingIds = plays
+    .filter((p) => !p.album_image_url)
+    .map((p) => p.track_id);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8 animate-fade-up">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
+          <p className="meta-label">library</p>
+          <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
             History
           </h1>
-          <p className="mt-1 text-muted-foreground">
+          <p className="mt-2 text-sm text-muted-foreground">
             Recent plays stored locally — sync to pull from Spotify.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleEnrich} disabled={pending}>
-            {pending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <ImagePlus className="size-4" />
-            )}
-            Fetch art
-          </Button>
-          <Button variant="outline" onClick={handleSync} disabled={pending}>
+        <div className="flex flex-wrap items-end gap-2">
+          <EnrichArtButton
+            trackIds={missingIds}
+            batches={20}
+            onDone={() => load()}
+          />
+          <Button variant="outline" size="sm" onClick={handleSync} disabled={pending}>
             {pending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
@@ -106,10 +96,12 @@ export default function HistoryPage() {
       </div>
 
       {message && (
-        <p className="text-sm text-muted-foreground animate-fade-up">{message}</p>
+        <p className="font-mono text-[11px] text-muted-foreground animate-fade-up">
+          {message}
+        </p>
       )}
       {error && (
-        <p className="rounded-2xl bg-destructive/15 px-4 py-3 text-sm text-destructive">
+        <p className="border border-destructive/40 bg-destructive/10 px-4 py-3 font-mono text-xs text-destructive">
           {error}
         </p>
       )}
@@ -117,15 +109,13 @@ export default function HistoryPage() {
       <Card>
         <CardHeader>
           <CardTitle>Recent plays</CardTitle>
-          <CardDescription>
-            {plays.length} shown (newest first)
-          </CardDescription>
+          <CardDescription>{plays.length} shown · newest first</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="space-y-2">
               {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+                <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
           ) : plays.length === 0 ? (
@@ -135,12 +125,12 @@ export default function HistoryPage() {
             </p>
           ) : (
             <ScrollArea className="h-[min(70vh,560px)] pr-3">
-              <ul className="space-y-1">
+              <ul className="divide-y divide-border">
                 {plays.map((play, i) => (
                   <li
                     key={`${play.played_at}-${play.track_id}`}
-                    className="flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors hover:bg-muted/50 animate-fade-up"
-                    style={{ animationDelay: `${Math.min(i, 20) * 20}ms` }}
+                    className="flex items-center gap-3 py-2.5 animate-fade-up"
+                    style={{ animationDelay: `${Math.min(i, 20) * 15}ms` }}
                   >
                     <AlbumArt
                       src={play.album_image_url}
@@ -154,7 +144,7 @@ export default function HistoryPage() {
                         {play.album_name ? ` · ${play.album_name}` : ""}
                       </p>
                     </div>
-                    <time className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    <time className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
                       {formatPlayedAt(play.played_at)}
                     </time>
                   </li>

@@ -6,7 +6,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Label,
   XAxis,
   YAxis,
 } from "recharts";
@@ -336,33 +335,46 @@ function PredictInner() {
           </CardHeader>
           <CardContent>
             {chartData.length === 0 ? (
-              <Skeleton className="aspect-video w-full rounded-3xl" />
+              <Skeleton className="aspect-video w-full" />
             ) : (
-              <ChartContainer
-                config={scoreConfig}
-                className="aspect-[16/9] w-full animate-fade-up"
-              >
-                <BarChart data={chartData} margin={{ left: 8, right: 8, bottom: 8 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false}>
-                    <Label value="Track" position="insideBottom" offset={-2} />
-                  </XAxis>
-                  <YAxis tickLine={false} axisLine={false} width={44}>
-                    <Label
-                      value="Score"
-                      angle={-90}
-                      position="insideLeft"
-                      style={{ textAnchor: "middle" }}
+              <>
+                <ChartContainer
+                  config={scoreConfig}
+                  className="aspect-[16/9] w-full animate-fade-up"
+                >
+                  <BarChart
+                    data={chartData}
+                    margin={{ top: 8, right: 8, left: 4, bottom: 4 }}
+                  >
+                    <CartesianGrid
+                      vertical={false}
+                      strokeDasharray="2 4"
+                      stroke="var(--border)"
                     />
-                  </YAxis>
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="score"
-                    fill="var(--color-score)"
-                    radius={[6, 6, 0, 0]}
-                  />
-                </BarChart>
-              </ChartContainer>
+                    <XAxis
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      width={40}
+                      tickMargin={6}
+                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar
+                      dataKey="score"
+                      fill="var(--color-score)"
+                      radius={[1, 1, 0, 0]}
+                    />
+                  </BarChart>
+                </ChartContainer>
+                <p className="meta-label mt-3">x · track &nbsp;·&nbsp; y · score</p>
+              </>
             )}
           </CardContent>
         </Card>

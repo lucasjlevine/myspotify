@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { ImagePlus, Loader2 } from "lucide-react";
 import { AlbumArt } from "@/components/album-art";
-import { Button } from "@/components/ui/button";
+import { EnrichArtButton } from "@/components/enrich-art-button";
 import {
   Card,
   CardContent,
@@ -19,11 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  enrichAlbumImages,
-  getTopArtists,
-  type TopArtist,
-} from "@/lib/api";
+import { getTopArtists, type TopArtist } from "@/lib/api";
 import { formatDuration, formatPlayedAt } from "@/lib/format";
 
 export default function TopArtistsPage() {
@@ -31,8 +26,7 @@ export default function TopArtistsPage() {
   const [artists, setArtists] = useState<TopArtist[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pending, startTransition] = useTransition();
-  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
   function load(nextLimit = limit) {
     startTransition(async () => {
@@ -53,33 +47,19 @@ export default function TopArtistsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleEnrich() {
-    setEnrichMsg(null);
-    startTransition(async () => {
-      try {
-        const res = await enrichAlbumImages(100);
-        setEnrichMsg(
-          `Fetched ${res.fetched} images · updated ${res.updated} rows`,
-        );
-        load();
-      } catch (err) {
-        setEnrichMsg(err instanceof Error ? err.message : "Enrich failed");
-      }
-    });
-  }
-
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8 animate-fade-up">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
+          <p className="meta-label">library</p>
+          <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
             Top artists
           </h1>
-          <p className="mt-1 text-muted-foreground">
-            Ranked by total plays — artwork from a recent album in that set.
+          <p className="mt-2 text-sm text-muted-foreground">
+            Ranked by total plays — cover art from a track in that set.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-end gap-3">
           <Select
             value={limit}
             onValueChange={(v) => {
@@ -100,22 +80,12 @@ export default function TopArtistsPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={handleEnrich} disabled={pending}>
-            {pending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <ImagePlus className="size-4" />
-            )}
-            Fetch art
-          </Button>
+          <EnrichArtButton batches={30} onDone={() => load()} />
         </div>
       </div>
 
-      {enrichMsg && (
-        <p className="text-sm text-muted-foreground animate-fade-up">{enrichMsg}</p>
-      )}
       {error && (
-        <p className="rounded-2xl bg-destructive/15 px-4 py-3 text-sm text-destructive">
+        <p className="border border-destructive/40 bg-destructive/10 px-4 py-3 font-mono text-xs text-destructive">
           {error}
         </p>
       )}
@@ -123,23 +93,21 @@ export default function TopArtistsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Leaderboard</CardTitle>
-          <CardDescription>
-            Plays, unique tracks, and listening time.
-          </CardDescription>
+          <CardDescription>plays · unique tracks · listen time</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-1">
+        <CardContent className="space-y-0 divide-y divide-border">
           {loading
             ? Array.from({ length: 12 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full rounded-2xl" />
+                <Skeleton key={i} className="my-2 h-16 w-full" />
               ))
             : artists.map((a, i) => (
                 <div
                   key={a.artist_names}
-                  className="flex items-center gap-3 rounded-2xl px-2 py-2 transition-colors hover:bg-muted/40 animate-fade-up"
-                  style={{ animationDelay: `${Math.min(i, 30) * 15}ms` }}
+                  className="flex items-center gap-3 py-3 animate-fade-up"
+                  style={{ animationDelay: `${Math.min(i, 30) * 12}ms` }}
                 >
-                  <span className="w-7 text-center font-heading tabular-nums text-primary">
-                    {i + 1}
+                  <span className="w-7 text-center font-mono text-xs tabular-nums text-primary">
+                    {String(i + 1).padStart(2, "0")}
                   </span>
                   <AlbumArt
                     src={a.album_image_url}
@@ -148,7 +116,7 @@ export default function TopArtistsPage() {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{a.artist_names}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-mono text-[10px] text-muted-foreground">
                       {a.play_count} plays · {a.unique_tracks} tracks
                       {a.total_ms != null
                         ? ` · ${formatDuration(a.total_ms)}`

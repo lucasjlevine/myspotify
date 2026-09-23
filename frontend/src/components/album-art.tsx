@@ -22,7 +22,7 @@ export function AlbumArt({ src, alt, size = "md", className }: AlbumArtProps) {
         src={src}
         alt={alt}
         className={cn(
-          "shrink-0 rounded-lg object-cover bg-muted",
+          "shrink-0 border border-border object-cover bg-muted",
           sizes[size],
           className,
         )}
@@ -33,13 +33,13 @@ export function AlbumArt({ src, alt, size = "md", className }: AlbumArtProps) {
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground",
+        "flex shrink-0 items-center justify-center border border-dashed border-border bg-muted/40 text-muted-foreground",
         sizes[size],
         className,
       )}
       aria-hidden
     >
-      <Disc3 className="size-1/2 opacity-50" />
+      <Disc3 className="size-1/2 opacity-40" />
     </div>
   );
 }

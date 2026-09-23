@@ -41,9 +41,40 @@ export function getListeningByDay(
   );
 }
 
-export function enrichAlbumImages(limit = 100) {
-  return apiFetch<{ fetched: number; updated: number; remaining_sample: number }>(
-    `/tracks/enrich-images?limit=${limit}`,
-    { method: "POST" },
-  );
+export type ImageCoverage = {
+  unique_tracks: number;
+  with_image: number;
+  missing: number;
+};
+
+export type EnrichImagesResult = {
+  fetched: number;
+  updated: number;
+  batches_run: number;
+} & ImageCoverage;
+
+export function getImageCoverage() {
+  return apiFetch<ImageCoverage>("/tracks/image-coverage");
+}
+
+export function enrichAlbumImages(opts?: {
+  limit?: number;
+  batches?: number;
+  trackIds?: string[];
+}) {
+  const limit = opts?.limit ?? 50;
+  const batches = opts?.batches ?? 20;
+  const params = new URLSearchParams({
+    limit: String(limit),
+    batches: String(batches),
+  });
+  return apiFetch<EnrichImagesResult>(`/tracks/enrich-images?${params}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      track_ids: opts?.trackIds ?? null,
+      limit,
+      batches,
+    }),
+  });
 }

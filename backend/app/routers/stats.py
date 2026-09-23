@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from app.database import session_scope
 from app import repositories
@@ -53,20 +54,63 @@ def get_listening_by_day(
         }
 
 
-@router.post("/tracks/enrich-images")
-def enrich_album_images(limit: int = Query(default=100, ge=1, le=200)):
-    """Fetch album art from Spotify for tracks missing images."""
+@router.get("/tracks/image-coverage")
+def get_image_coverage():
     with session_scope() as session:
-        missing = repositories.track_ids_missing_images(session, limit=limit)
-    if not missing:
-        return {"fetched": 0, "updated": 0, "remaining": 0}
+        return repositories.image_coverage(session)
 
-    mapping = spotify_tracks.fetch_track_images(missing)
+
+class EnrichImagesBody(BaseModel):
+    track_ids: list[str] | None = None
+    batches: int = Field(default=1, ge=1, le=100)
+    limit: int = Field(default=50, ge=1, le=50)
+
+
+@router.post("/tracks/enrich-images")
+def enrich_album_images(
+    body: EnrichImagesBody | None = None,
+    limit: int = Query(default=50, ge=1, le=50),
+    batches: int = Query(default=1, ge=1, le=100),
+):
+    """Backfill album art from Spotify, most-played tracks first.
+
+    Spotify allows 50 track ids per request. Pass `batches` to run multiple
+    rounds in one call (e.g. batches=20 ≈ 1000 tracks). Optional `track_ids`
+    in JSON body to enrich a visible list first.
+    """
+    payload = body or EnrichImagesBody(limit=limit, batches=batches)
+    batch_limit = min(payload.limit, limit, 50)
+    batch_count = max(payload.batches, batches)
+    requested_ids = payload.track_ids
+
+    total_fetched = 0
+    total_updated = 0
+
+    for _ in range(batch_count):
+        with session_scope() as session:
+            missing = repositories.track_ids_missing_images(
+                session,
+                limit=batch_limit,
+                prioritize="plays",
+                track_ids=requested_ids,
+            )
+        if not missing:
+            break
+
+        mapping = spotify_tracks.fetch_track_images(missing)
+        total_fetched += len(mapping)
+        with session_scope() as session:
+            total_updated += repositories.apply_album_images(session, mapping)
+
+        # After targeted ids, continue with global priority queue
+        requested_ids = None
+
     with session_scope() as session:
-        updated = repositories.apply_album_images(session, mapping)
-        still_missing = repositories.track_ids_missing_images(session, limit=200)
+        coverage = repositories.image_coverage(session)
+
     return {
-        "fetched": len(mapping),
-        "updated": updated,
-        "remaining_sample": len(still_missing),
+        "fetched": total_fetched,
+        "updated": total_updated,
+        "batches_run": batch_count,
+        **coverage,
     }

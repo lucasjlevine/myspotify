@@ -6,7 +6,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Label,
   Line,
   LineChart,
   XAxis,
@@ -110,11 +109,12 @@ export default function OverviewPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8 animate-fade-up">
       <div>
-        <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
+        <p className="meta-label">dashboard</p>
+        <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
           Overview
         </h1>
-        <p className="mt-1 text-muted-foreground">
-          Your listening shape — times shown in {tzName}.
+        <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+          Listening shape in your local clock — {tzName}.
         </p>
       </div>
 
@@ -176,28 +176,36 @@ export default function OverviewPage() {
               <Skeleton className="aspect-video w-full rounded-3xl" />
             ) : (
               <ChartContainer config={hourConfig} className="aspect-[16/9] w-full">
-                <BarChart data={hourData} margin={{ left: 8, right: 8, bottom: 8 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} interval={3}>
-                    <Label value="Hour of day" position="insideBottom" offset={-2} />
-                  </XAxis>
-                  <YAxis tickLine={false} axisLine={false} width={40}>
-                    <Label
-                      value="Plays"
-                      angle={-90}
-                      position="insideLeft"
-                      style={{ textAnchor: "middle" }}
-                    />
-                  </YAxis>
+                <BarChart
+                  data={hourData}
+                  margin={{ top: 8, right: 8, left: 4, bottom: 4 }}
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="2 4" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="label"
+                    tickLine={false}
+                    axisLine={false}
+                    interval={3}
+                    tickMargin={8}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    width={36}
+                    tickMargin={6}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar
                     dataKey="play_count"
                     fill="var(--color-play_count)"
-                    radius={[6, 6, 0, 0]}
+                    radius={[1, 1, 0, 0]}
                   />
                 </BarChart>
               </ChartContainer>
             )}
+            <p className="meta-label mt-3">x · hour &nbsp;·&nbsp; y · plays</p>
           </CardContent>
         </Card>
 
@@ -208,38 +216,41 @@ export default function OverviewPage() {
           </CardHeader>
           <CardContent>
             {loading ? (
-              <Skeleton className="aspect-video w-full rounded-3xl" />
+              <Skeleton className="aspect-video w-full" />
             ) : (
               <ChartContainer config={dayConfig} className="aspect-[16/9] w-full">
-                <LineChart data={dayData} margin={{ left: 8, right: 8, bottom: 8 }}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <LineChart
+                  data={dayData}
+                  margin={{ top: 8, right: 8, left: 4, bottom: 4 }}
+                >
+                  <CartesianGrid vertical={false} strokeDasharray="2 4" stroke="var(--border)" />
                   <XAxis
                     dataKey="label"
                     tickLine={false}
                     axisLine={false}
                     interval="preserveStartEnd"
-                  >
-                    <Label value="Date" position="insideBottom" offset={-2} />
-                  </XAxis>
-                  <YAxis tickLine={false} axisLine={false} width={40}>
-                    <Label
-                      value="Plays"
-                      angle={-90}
-                      position="insideLeft"
-                      style={{ textAnchor: "middle" }}
-                    />
-                  </YAxis>
+                    tickMargin={8}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    width={36}
+                    tickMargin={6}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Line
                     type="monotone"
                     dataKey="play_count"
                     stroke="var(--color-play_count)"
-                    strokeWidth={2}
+                    strokeWidth={1.5}
                     dot={false}
                   />
                 </LineChart>
               </ChartContainer>
             )}
+            <p className="meta-label mt-3">x · date &nbsp;·&nbsp; y · plays</p>
           </CardContent>
         </Card>
       </div>

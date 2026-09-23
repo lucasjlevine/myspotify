@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { ExternalLink, ImagePlus, Loader2, Sparkles } from "lucide-react";
+import { ExternalLink, Sparkles } from "lucide-react";
 import { AlbumArt } from "@/components/album-art";
+import { EnrichArtButton } from "@/components/enrich-art-button";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,11 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  enrichAlbumImages,
-  getTopTracks,
-  type TopTrack,
-} from "@/lib/api";
+import { getTopTracks, type TopTrack } from "@/lib/api";
 import {
   formatDuration,
   formatPlayedAt,
@@ -36,8 +33,7 @@ export default function TopTracksPage() {
   const [tracks, setTracks] = useState<TopTrack[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pending, startTransition] = useTransition();
-  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
   function load(nextLimit = limit) {
     startTransition(async () => {
@@ -58,33 +54,24 @@ export default function TopTracksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleEnrich() {
-    setEnrichMsg(null);
-    startTransition(async () => {
-      try {
-        const res = await enrichAlbumImages(100);
-        setEnrichMsg(
-          `Fetched ${res.fetched} images · updated ${res.updated} rows`,
-        );
-        load();
-      } catch (err) {
-        setEnrichMsg(err instanceof Error ? err.message : "Enrich failed");
-      }
-    });
-  }
+  const missingIds = tracks
+    .filter((t) => !t.album_image_url)
+    .map((t) => t.track_id);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8 animate-fade-up">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
+          <p className="meta-label">library</p>
+          <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
             Top tracks
           </h1>
-          <p className="mt-1 text-muted-foreground">
-            Ranked by play count across your full history.
+          <p className="mt-2 text-sm text-muted-foreground">
+            Ranked by play count. Fetch art pulls most-played missing covers first
+            (~50/request × batches).
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-end gap-3">
           <Select
             value={limit}
             onValueChange={(v) => {
@@ -105,22 +92,16 @@ export default function TopTracksPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={handleEnrich} disabled={pending}>
-            {pending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <ImagePlus className="size-4" />
-            )}
-            Fetch art
-          </Button>
+          <EnrichArtButton
+            trackIds={missingIds}
+            batches={30}
+            onDone={() => load()}
+          />
         </div>
       </div>
 
-      {enrichMsg && (
-        <p className="text-sm text-muted-foreground animate-fade-up">{enrichMsg}</p>
-      )}
       {error && (
-        <p className="rounded-2xl bg-destructive/15 px-4 py-3 text-sm text-destructive">
+        <p className="border border-destructive/40 bg-destructive/10 px-4 py-3 font-mono text-xs text-destructive">
           {error}
         </p>
       )}
@@ -129,22 +110,22 @@ export default function TopTracksPage() {
         <CardHeader>
           <CardTitle>Leaderboard</CardTitle>
           <CardDescription>
-            Open in Spotify or seed a prediction from a track.
+            open in spotify · seed predict from a row
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-1">
+        <CardContent className="space-y-0 divide-y divide-border">
           {loading
             ? Array.from({ length: 12 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full rounded-2xl" />
+                <Skeleton key={i} className="my-2 h-16 w-full" />
               ))
             : tracks.map((t, i) => (
                 <div
                   key={t.track_id}
-                  className="flex items-center gap-3 rounded-2xl px-2 py-2 transition-colors hover:bg-muted/40 animate-fade-up"
-                  style={{ animationDelay: `${Math.min(i, 30) * 15}ms` }}
+                  className="flex items-center gap-3 py-3 animate-fade-up"
+                  style={{ animationDelay: `${Math.min(i, 30) * 12}ms` }}
                 >
-                  <span className="w-7 text-center font-heading tabular-nums text-primary">
-                    {i + 1}
+                  <span className="w-7 text-center font-mono text-xs tabular-nums text-primary">
+                    {String(i + 1).padStart(2, "0")}
                   </span>
                   <AlbumArt src={t.album_image_url} alt={t.album_name} size="md" />
                   <div className="min-w-0 flex-1">
@@ -153,7 +134,7 @@ export default function TopTracksPage() {
                       {t.artist_names}
                       {t.album_name ? ` · ${t.album_name}` : ""}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-mono text-[10px] text-muted-foreground">
                       {t.play_count} plays
                       {t.total_ms != null ? ` · ${formatDuration(t.total_ms)}` : ""}
                       {t.last_played_at

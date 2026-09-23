@@ -45,6 +45,16 @@ uv run python -m app.import_history
 
 Imports `spotify:track:` rows only. Upsert key: `(played_at, track_id)`.
 
+## Album artwork
+
+Most history imports have no images. Backfill from the Spotify Web API (most-played first, 50 ids/request):
+
+```bash
+uv run python -m app.enrich_images --batches 40
+# or from the UI: Top tracks → Fetch art (runs ~30 batches)
+curl -X POST "http://127.0.0.1:8000/tracks/enrich-images?batches=20"
+```
+
 ## Next-song predictors
 
 | id | Idea |
