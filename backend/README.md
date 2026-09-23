@@ -1,6 +1,6 @@
 # Spotify Play History Backend
 
-FastAPI service: Spotify OAuth, play history accumulation, Extended Streaming History import, and a Markov next-song baseline.
+FastAPI service: Spotify OAuth, play history accumulation, Extended Streaming History import, and next-song predictors.
 
 ## Setup
 
@@ -44,14 +44,24 @@ uv run python -m app.import_history
 
 Imports `spotify:track:` rows only. Upsert key: `(played_at, track_id)`.
 
-## Next-song predictor
+## Next-song predictors
+
+| id | Idea |
+|----|------|
+| `markov` | First-order track transitions (default) |
+| `popularity` | Globally most-played tracks |
+| `artist` | Other tracks by the same artist |
+| `cooccurrence` | Tracks that co-appear in a ±5 play window |
+| `item_knn` | sklearn cosine kNN on co-occurrence vectors |
 
 ```bash
-uv run python -m app.ml.train
-curl "http://127.0.0.1:8000/predict/next?k=5"
+uv run python -m app.ml.train              # all models
+uv run python -m app.ml.train --model markov
+curl "http://127.0.0.1:8000/predict/models"
+curl "http://127.0.0.1:8000/predict/next?k=5&model=item_knn"
 ```
 
-Writes `data/models/markov.json`. Context = most recent stored play.
+Artifacts under `data/models/` (gitignored). Context = most recent stored play.
 
 ## Endpoints
 
@@ -61,7 +71,8 @@ Writes `data/models/markov.json`. Context = most recent stored play.
 | `GET` | `/authorize/callback` | Store tokens |
 | `POST` | `/sync/plays` | Fetch & upsert recent plays |
 | `GET` | `/plays?limit=50` | List stored plays |
-| `GET` | `/predict/next?k=5` | Predict next track(s) |
+| `GET` | `/predict/models` | List predictors + train status |
+| `GET` | `/predict/next?k=5&model=markov` | Predict next track(s) |
 
 ## Layout
 
@@ -69,18 +80,13 @@ Writes `data/models/markov.json`. Context = most recent stored play.
 backend/
   main.py
   app/
-    config.py database.py models.py repositories.py lifespan.py
-    routers/          # HTTP
-    spotify/          # OAuth, sync, export import
-    ml/               # predictor protocol + Markov baseline
-    import_history.py # CLI: python -m app.import_history
+    routers/ spotify/ ml/
+    import_history.py
   data/
-    plays.db                          # gitignored
-    models/markov.json                # gitignored
-    Spotify Extended Streaming History/  # gitignored
+    plays.db / models/* / Spotify Extended Streaming History/   # gitignored
 ```
 
 ## Notes
 
 - Web API recently-played ≈ last 50; history grows via poll + optional export import.
-- Do not commit `.env`, DBs, model JSON, or privacy-export files.
+- Do not commit `.env`, DBs, model artifacts, or privacy-export files.

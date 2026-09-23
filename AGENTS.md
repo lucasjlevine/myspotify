@@ -11,6 +11,7 @@ Monorepo: `backend/` (FastAPI) + `frontend/` (Next.js).
 cd backend && uv sync && uv run main.py
 cd backend && uv run python -m app.import_history
 cd backend && uv run python -m app.ml.train
+uv run python -m app.ml.train --model item_knn
 
 # Frontend
 cd frontend && npm install && npm run dev
