@@ -1,23 +1,23 @@
 # Spotify Play History Backend
 
-FastAPI service that authorizes with Spotify (Authorization Code Flow), stores OAuth tokens, and accumulates listening history by polling recently played tracks into SQLite via SQLAlchemy.
+FastAPI service: Spotify OAuth, play history accumulation, Extended Streaming History import, and a Markov next-song baseline.
 
 ## Setup
 
-1. Copy env vars into `.env` (gitignored):
+1. Create `.env` (gitignored):
 
 ```env
 SPOTIFY_STATE=<random-csrf-string>
-SPOTIFY_CLIENT_ID=<from Spotify Developer Dashboard>
-SPOTIFY_CLIENT_SECRET=<from Spotify Developer Dashboard>
+SPOTIFY_CLIENT_ID=<dashboard>
+SPOTIFY_CLIENT_SECRET=<dashboard>
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/authorize/callback
 SPOTIFY_REFRESH_TOKEN=
 SPOTIFY_API_SCOPE=user-read-email user-read-private user-top-read user-read-recently-played user-read-playback-state user-read-currently-playing user-library-read playlist-read-private playlist-read-collaborative user-follow-read
 ```
 
-2. In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), add the exact redirect URI `http://127.0.0.1:8000/authorize/callback` (use `127.0.0.1`, not `localhost`).
+2. Spotify Dashboard redirect URI must match exactly (`127.0.0.1`, not `localhost`).
 
-3. Install and run from this directory:
+3. Run:
 
 ```bash
 uv sync
@@ -26,39 +26,61 @@ uv run main.py
 
 API docs: http://127.0.0.1:8000/docs
 
-## First-time auth
+## Auth
 
 1. Open http://127.0.0.1:8000/authorize
-2. Approve the app in Spotify
-3. Tokens are saved to SQLite (`data/plays.db`) and `SPOTIFY_REFRESH_TOKEN` is written into `.env`
-4. Recently played tracks are synced after authorize and every 15 minutes while the server runs
+2. Approve in Spotify
+3. Tokens land in SQLite + `SPOTIFY_REFRESH_TOKEN` in `.env`
+4. Recently played syncs on authorize and every 15 minutes
+
+## Import Extended Streaming History
+
+Put the privacy export in `data/Spotify Extended Streaming History/`:
+
+```bash
+uv run python -m app.import_history
+# optional: uv run python -m app.import_history --min-ms 30000
+```
+
+Imports `spotify:track:` rows only. Upsert key: `(played_at, track_id)`.
+
+## Next-song predictor
+
+```bash
+uv run python -m app.ml.train
+curl "http://127.0.0.1:8000/predict/next?k=5"
+```
+
+Writes `data/models/markov.json`. Context = most recent stored play.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/authorize` | Start Spotify OAuth |
-| `GET` | `/authorize/callback` | OAuth callback; stores tokens |
-| `POST` | `/sync/plays` | Manually fetch & upsert recent plays |
+| `GET` | `/authorize` | Start OAuth |
+| `GET` | `/authorize/callback` | Store tokens |
+| `POST` | `/sync/plays` | Fetch & upsert recent plays |
 | `GET` | `/plays?limit=50` | List stored plays |
+| `GET` | `/predict/next?k=5` | Predict next track(s) |
 
 ## Layout
 
 ```
 backend/
-  main.py                 # App entrypoint
+  main.py
   app/
-    config.py             # Settings from .env
-    database.py           # SQLAlchemy engine / sessions
-    models.py             # Token, Play ORM models
-    repositories.py       # DB access helpers
-    lifespan.py           # Startup + background poller
-    routers/              # HTTP routes
-    spotify/              # OAuth + recently-played sync
-  data/plays.db           # Local SQLite (gitignored)
+    config.py database.py models.py repositories.py lifespan.py
+    routers/          # HTTP
+    spotify/          # OAuth, sync, export import
+    ml/               # predictor protocol + Markov baseline
+    import_history.py # CLI: python -m app.import_history
+  data/
+    plays.db                          # gitignored
+    models/markov.json                # gitignored
+    Spotify Extended Streaming History/  # gitignored
 ```
 
 ## Notes
 
-- Spotify’s Web API only returns about the last 50 plays per request. This service accumulates history over time by polling.
-- Do not commit `.env` or `data/*.db`.
+- Web API recently-played ≈ last 50; history grows via poll + optional export import.
+- Do not commit `.env`, DBs, model JSON, or privacy-export files.

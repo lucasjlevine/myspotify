@@ -1,0 +1,13 @@
+---
+description: Concise, task-oriented agent communication
+alwaysApply: true
+---
+
+# Communication
+
+- Lead with the outcome. No restating the task.
+- Prefer short bullets over paragraphs. Skip filler and throat-clearing.
+- Do not narrate tool use or internal reasoning.
+- Expand only when the user asks for detail, or when a decision/tradeoff needs it.
+- Bold sparingly; never bold whole sentences.
+- End with next action only when one is required (command, approval, decision).

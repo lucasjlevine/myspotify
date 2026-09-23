@@ -1,64 +1,42 @@
 # AGENTS.md — Backend
 
-Guidance for coding agents working in `backend/`.
+Applies when editing `backend/`. Root [AGENTS.md](../AGENTS.md) + `.cursor/rules/` also apply.
 
 ## Purpose
 
-Personal FastAPI backend that:
+FastAPI app: Spotify OAuth, play upsert/polling, Extended History import, Markov next-song baseline.
 
-1. Completes Spotify Authorization Code Flow
-2. Persists access/refresh tokens
-3. Polls `/me/player/recently-played` and upserts plays into SQLite for later ML (next-song prediction)
+## Commands
 
-Keep scope focused on collection and auth unless the user asks to expand.
+```bash
+cd backend
+uv sync
+uv run main.py
+uv run python -m app.import_history
+uv run python -m app.ml.train
+```
 
-## Stack
+## Layout
 
-- Python 3.14+, `uv` for deps (`pyproject.toml` / `uv.lock`)
-- FastAPI + Uvicorn
-- SQLAlchemy 2.0 ORM (SQLite at `data/plays.db`)
-- `pydantic-settings` + `.env` for config
-- `requests` for Spotify HTTP calls
+- `main.py` — thin entry only
+- `app/routers/` — HTTP
+- `app/spotify/` — OAuth, recently-played sync, export parse
+- `app/ml/` — `NextSongPredictor` protocol + Markov; train CLI / predict service
+- `app/models.py` + `app/repositories.py` — SQLAlchemy
 
-## Layout conventions
+## Rules
 
-- `main.py` stays thin: create app and run uvicorn only
-- HTTP routes live in `app/routers/`
-- Spotify API / OAuth logic lives in `app/spotify/`
-- ORM models in `app/models.py`; queries in `app/repositories.py`
-- Do not dump helpers back into `main.py`
+- Sessions via `session_scope()`; no raw `sqlite3`
+- Never return tokens in API responses
+- Deps: `uv add` / `uv sync`
+- Upsert key `(played_at, track_id)`
+- New models implement `app/ml/protocol.py`; artifact `data/models/markov.json`
+- Redirect URI: loopback `127.0.0.1`, not `localhost`
 
-## Environment
+## Do not commit
 
-Required `.env` keys (never commit secrets):
+`.env`, `data/*.db`, `data/models/*.json`, `data/Spotify Extended Streaming History/`
 
-- `SPOTIFY_STATE`
-- `SPOTIFY_CLIENT_ID`
-- `SPOTIFY_CLIENT_SECRET`
-- `SPOTIFY_REDIRECT_URI` — must be loopback `http://127.0.0.1:...`, not `localhost`
-- `SPOTIFY_API_SCOPE`
-- `SPOTIFY_REFRESH_TOKEN` — filled after successful OAuth
+## Out of scope unless asked
 
-Redirect URI in the Spotify Dashboard must match `.env` exactly.
-
-## Data constraints
-
-- Spotify only exposes ~50 recent plays via the Web API
-- History grows by polling (default every 15 minutes in `app/lifespan.py`)
-- Upsert key is `(played_at, track_id)` — duplicates are ignored
-- Do not add privacy-export import unless asked
-
-## Working rules
-
-- Prefer small, focused modules over large files
-- Use SQLAlchemy sessions via `session_scope()`; avoid raw `sqlite3`
-- Never return access/refresh tokens in API responses
-- After dependency changes, update with `uv add` / `uv sync`, not ad-hoc pip-only edits
-- Run from `backend/`: `uv run main.py`
-
-## Out of scope (unless requested)
-
-- Frontend work
-- ML training / next-song model
-- Pushing to remote git
-- Committing `.env` or database files
+Frontend, neural models, force-push / rewriting git history

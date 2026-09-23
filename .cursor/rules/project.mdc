@@ -1,0 +1,13 @@
+---
+description: Monorepo layout and safety constraints
+alwaysApply: true
+---
+
+# Project
+
+Personal Spotify stack: `backend/` (FastAPI + play history + next-song ML) and `frontend/` (Next.js).
+
+- Closest `AGENTS.md` wins (`backend/AGENTS.md`, `frontend/AGENTS.md`).
+- Never commit secrets, `.env`, SQLite DBs, trained models, or Spotify privacy-export data.
+- Prefer small focused modules; keep `backend/main.py` thin.
+- Run backend from `backend/`: `uv sync`, `uv run main.py`.
