@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -17,6 +18,7 @@ from app.ml.registry import (
     list_model_ids,
     metadata_path,
 )
+from app.ml.windows import list_window_presets, resolve_seed_plays
 from app.models import Play
 
 
@@ -48,13 +50,8 @@ def _play_to_dict(play: Play) -> dict:
         "album_name": play.album_name,
         "duration_ms": play.duration_ms,
         "context_uri": play.context_uri,
+        "album_image_url": getattr(play, "album_image_url", None),
     }
-
-
-def _latest_play(session: Session) -> Play | None:
-    return session.scalars(
-        select(Play).order_by(Play.played_at.desc()).limit(1)
-    ).first()
 
 
 def _track_meta_map(session: Session, track_ids: list[str]) -> dict[str, dict]:
@@ -75,12 +72,13 @@ def _track_meta_map(session: Session, track_ids: list[str]) -> dict[str, dict]:
             "track_name": row.track_name,
             "artist_names": row.artist_names,
             "album_name": row.album_name,
+            "album_image_url": getattr(row, "album_image_url", None),
         }
     return meta
 
 
 def _read_model_meta(model_id: str) -> dict:
-    if model_id == "item_knn":
+    if model_id in ("item_knn", "prompted"):
         meta_file = metadata_path(model_id)
         if meta_file.exists():
             import json
@@ -119,7 +117,67 @@ def list_models() -> dict:
             }
             entry.update(meta)
         models.append(entry)
-    return {"default": DEFAULT_MODEL_ID, "models": models}
+    return {
+        "default": DEFAULT_MODEL_ID,
+        "models": models,
+        "windows": list_window_presets(),
+    }
+
+
+def _context_from_plays(plays: list[Play]) -> PredictContext:
+    primary = plays[-1]
+    texts = tuple(
+        f"{(p.artist_names or '').strip()} {(p.album_name or '').strip()} "
+        f"{(p.track_name or '').strip()}".strip()
+        for p in plays
+    )
+    return PredictContext(
+        track_id=primary.track_id,
+        artist_names=primary.artist_names or "",
+        album_name=primary.album_name or "",
+        played_at=primary.played_at,
+        recent_track_ids=tuple(p.track_id for p in plays),
+        recent_texts=texts,
+    )
+
+
+def _blend_predictions(
+    predictor: NextSongPredictor,
+    plays: list[Play],
+    *,
+    k: int,
+) -> list[tuple[str, float]]:
+    """Recency-weighted blend of per-seed predictions for classical models."""
+    if len(plays) == 1 or getattr(predictor, "model_id", "") == "prompted":
+        ctx = _context_from_plays(plays)
+        return predictor.predict(ctx, k=k)
+
+    exclude = {p.track_id for p in plays}
+    scores: dict[str, float] = defaultdict(float)
+    n = len(plays)
+    # Fetch extra candidates so blending still fills top-k after exclusions
+    fetch_k = max(k * 3, 15)
+
+    for i, play in enumerate(plays):
+        weight = (i + 1) / n  # newer seeds weigh more
+        ctx = PredictContext(
+            track_id=play.track_id,
+            artist_names=play.artist_names or "",
+            album_name=play.album_name or "",
+            played_at=play.played_at,
+            recent_track_ids=tuple(p.track_id for p in plays),
+            recent_texts=tuple(
+                f"{(p.artist_names or '')} {(p.track_name or '')}".strip()
+                for p in plays
+            ),
+        )
+        for tid, score in predictor.predict(ctx, k=fetch_k):
+            if tid in exclude:
+                continue
+            scores[tid] += score * weight
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return ranked[:k]
 
 
 def predict_next(
@@ -128,9 +186,10 @@ def predict_next(
     model: str = DEFAULT_MODEL_ID,
     path: Path | None = None,
     track_id: str | None = None,
+    window: str = "latest",
+    tz_offset_minutes: int = 0,
 ) -> dict:
     if path is not None:
-        # Legacy/test override: load markov-style from explicit path via given model class
         predictor = create_predictor(model)
         predictor = type(predictor).load(path)  # type: ignore[misc]
         model_id = model
@@ -139,35 +198,15 @@ def predict_next(
         model_id = model
 
     with session_scope() as session:
-        if track_id is not None:
-            seed = session.scalars(
-                select(Play)
-                .where(Play.track_id == track_id)
-                .order_by(Play.played_at.desc())
-                .limit(1)
-            ).first()
-            if seed is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"unknown_track:{track_id}",
-                )
-        else:
-            seed = _latest_play(session)
-            if seed is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="no_plays: sync listening history before predicting",
-                )
-
-        context_play = _play_to_dict(seed)
-        context = PredictContext(
-            track_id=seed.track_id,
-            artist_names=seed.artist_names or "",
-            album_name=seed.album_name or "",
-            played_at=seed.played_at,
+        plays = resolve_seed_plays(
+            session,
+            window=window,
+            track_id=track_id if window == "latest" else None,
+            tz_offset_minutes=tz_offset_minutes,
         )
-        ranked = predictor.predict(context, k=k)
+        ranked = _blend_predictions(predictor, plays, k=k)
         meta = _track_meta_map(session, [tid for tid, _ in ranked])
+        seed_dicts = [_play_to_dict(p) for p in plays]
 
     predictions = []
     for tid, score in ranked:
@@ -183,9 +222,13 @@ def predict_next(
     }
     if hasattr(predictor, "n_transitions"):
         model_info["n_transitions"] = predictor.n_transitions
+    if hasattr(predictor, "backend"):
+        model_info["backend"] = predictor.backend
 
     return {
-        "context": context_play,
+        "context": seed_dicts[-1],
+        "seeds": seed_dicts,
+        "window": window,
         "model": model_info,
         "predictions": predictions,
     }

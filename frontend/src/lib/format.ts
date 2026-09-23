@@ -22,12 +22,35 @@ export function formatPlayedAt(iso: string): string {
 }
 
 export function formatDayLabel(day: string): string {
-  const date = new Date(`${day}T12:00:00Z`);
+  const date = new Date(`${day}T12:00:00`);
   if (Number.isNaN(date.getTime())) return day;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export function formatHourLabel(hour: number): string {
+  const date = new Date();
+  date.setHours(hour, 0, 0, 0);
+  return date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+  });
 }
 
 export function formatScore(score: number): string {
   if (score >= 0.01) return score.toFixed(3);
   return score.toExponential(2);
+}
+
+export function spotifyTrackUrl(trackId: string): string {
+  return `https://open.spotify.com/track/${trackId}`;
+}
+
+export function localTimeZoneName(): string {
+  try {
+    return (
+      Intl.DateTimeFormat().resolvedOptions().timeZone ||
+      `UTC${-new Date().getTimezoneOffset() / 60 >= 0 ? "+" : ""}${-new Date().getTimezoneOffset() / 60}`
+    );
+  } catch {
+    return "local";
+  }
 }

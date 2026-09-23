@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from collections import Counter
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -37,6 +38,20 @@ def get_tokens(session: Session) -> Token | None:
     return session.get(Token, 1)
 
 
+def _play_row(play: dict, collected_at: str) -> dict:
+    return {
+        "played_at": play["played_at"],
+        "track_id": play["track_id"],
+        "track_name": play["track_name"],
+        "artist_names": play["artist_names"],
+        "album_name": play["album_name"],
+        "duration_ms": play["duration_ms"],
+        "context_uri": play.get("context_uri"),
+        "collected_at": collected_at,
+        "album_image_url": play.get("album_image_url"),
+    }
+
+
 def upsert_plays(session: Session, plays: list[dict]) -> tuple[int, int]:
     if not plays:
         return 0, 0
@@ -46,19 +61,7 @@ def upsert_plays(session: Session, plays: list[dict]) -> tuple[int, int]:
 
     for start in range(0, len(plays), UPSERT_BATCH_SIZE):
         batch = plays[start : start + UPSERT_BATCH_SIZE]
-        rows = [
-            {
-                "played_at": play["played_at"],
-                "track_id": play["track_id"],
-                "track_name": play["track_name"],
-                "artist_names": play["artist_names"],
-                "album_name": play["album_name"],
-                "duration_ms": play["duration_ms"],
-                "context_uri": play.get("context_uri"),
-                "collected_at": collected_at,
-            }
-            for play in batch
-        ]
+        rows = [_play_row(play, collected_at) for play in batch]
         statement = (
             sqlite_insert(Play)
             .values(rows)
@@ -71,23 +74,74 @@ def upsert_plays(session: Session, plays: list[dict]) -> tuple[int, int]:
     return inserted, skipped
 
 
+def fill_missing_album_images(session: Session, plays: list[dict]) -> int:
+    """Backfill album_image_url for existing rows of these tracks when missing."""
+    updated = 0
+    for play in plays:
+        url = play.get("album_image_url")
+        tid = play.get("track_id")
+        if not url or not tid:
+            continue
+        result = session.execute(
+            update(Play)
+            .where(Play.track_id == tid)
+            .where(
+                (Play.album_image_url.is_(None)) | (Play.album_image_url == "")
+            )
+            .values(album_image_url=url)
+        )
+        updated += int(result.rowcount or 0)
+    return updated
+
+
+def apply_album_images(session: Session, mapping: dict[str, str]) -> int:
+    updated = 0
+    for track_id, url in mapping.items():
+        if not url:
+            continue
+        result = session.execute(
+            update(Play)
+            .where(Play.track_id == track_id)
+            .where(
+                (Play.album_image_url.is_(None)) | (Play.album_image_url == "")
+            )
+            .values(album_image_url=url)
+        )
+        updated += int(result.rowcount or 0)
+    return updated
+
+
+def track_ids_missing_images(session: Session, limit: int = 200) -> list[str]:
+    rows = session.execute(
+        select(Play.track_id)
+        .where(
+            (Play.album_image_url.is_(None)) | (Play.album_image_url == "")
+        )
+        .group_by(Play.track_id)
+        .limit(limit)
+    ).all()
+    return [row[0] for row in rows]
+
+
+def _serialize_play(row: Play) -> dict:
+    return {
+        "played_at": row.played_at,
+        "track_id": row.track_id,
+        "track_name": row.track_name,
+        "artist_names": row.artist_names,
+        "album_name": row.album_name,
+        "duration_ms": row.duration_ms,
+        "context_uri": row.context_uri,
+        "collected_at": row.collected_at,
+        "album_image_url": row.album_image_url,
+    }
+
+
 def list_plays(session: Session, limit: int = 50) -> list[dict]:
     rows = session.scalars(
         select(Play).order_by(Play.played_at.desc()).limit(limit)
     ).all()
-    return [
-        {
-            "played_at": row.played_at,
-            "track_id": row.track_id,
-            "track_name": row.track_name,
-            "artist_names": row.artist_names,
-            "album_name": row.album_name,
-            "duration_ms": row.duration_ms,
-            "context_uri": row.context_uri,
-            "collected_at": row.collected_at,
-        }
-        for row in rows
-    ]
+    return [_serialize_play(row) for row in rows]
 
 
 def count_plays(session: Session) -> int:
@@ -103,16 +157,7 @@ def get_play_by_track_id(session: Session, track_id: str) -> dict | None:
     ).first()
     if row is None:
         return None
-    return {
-        "played_at": row.played_at,
-        "track_id": row.track_id,
-        "track_name": row.track_name,
-        "artist_names": row.artist_names,
-        "album_name": row.album_name,
-        "duration_ms": row.duration_ms,
-        "context_uri": row.context_uri,
-        "collected_at": row.collected_at,
-    }
+    return _serialize_play(row)
 
 
 def stats_summary(session: Session) -> dict:
@@ -144,6 +189,9 @@ def top_tracks(session: Session, limit: int = 10) -> list[dict]:
             Play.artist_names,
             Play.album_name,
             func.count().label("play_count"),
+            func.max(Play.album_image_url).label("album_image_url"),
+            func.sum(Play.duration_ms).label("total_ms"),
+            func.max(Play.played_at).label("last_played_at"),
         )
         .group_by(Play.track_id)
         .order_by(func.count().desc())
@@ -156,6 +204,9 @@ def top_tracks(session: Session, limit: int = 10) -> list[dict]:
             "artist_names": row.artist_names,
             "album_name": row.album_name,
             "play_count": int(row.play_count),
+            "album_image_url": row.album_image_url,
+            "total_ms": int(row.total_ms or 0),
+            "last_played_at": row.last_played_at,
         }
         for row in rows
     ]
@@ -167,6 +218,9 @@ def top_artists(session: Session, limit: int = 10) -> list[dict]:
             Play.artist_names,
             func.count().label("play_count"),
             func.count(func.distinct(Play.track_id)).label("unique_tracks"),
+            func.sum(Play.duration_ms).label("total_ms"),
+            func.max(Play.played_at).label("last_played_at"),
+            func.max(Play.album_image_url).label("album_image_url"),
         )
         .group_by(Play.artist_names)
         .order_by(func.count().desc())
@@ -177,36 +231,62 @@ def top_artists(session: Session, limit: int = 10) -> list[dict]:
             "artist_names": row.artist_names,
             "play_count": int(row.play_count),
             "unique_tracks": int(row.unique_tracks),
+            "total_ms": int(row.total_ms or 0),
+            "last_played_at": row.last_played_at,
+            "album_image_url": row.album_image_url,
         }
         for row in rows
     ]
 
 
-def listening_by_hour(session: Session) -> list[dict]:
-    # played_at is ISO8601; substr positions 12-13 are the hour for "YYYY-MM-DDTHH:..."
-    hour_expr = func.substr(Play.played_at, 12, 2)
-    rows = session.execute(
-        select(hour_expr.label("hour"), func.count().label("play_count"))
-        .group_by(hour_expr)
-        .order_by(hour_expr)
-    ).all()
-    counts = {int(row.hour): int(row.play_count) for row in rows if row.hour and row.hour.isdigit()}
+def _parse_played_at(value: str) -> datetime | None:
+    try:
+        text = value.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
+def listening_by_hour(
+    session: Session, *, tz_offset_minutes: int = 0
+) -> list[dict]:
+    """Bucket plays by local hour using client timezone offset from UTC."""
+    offset = timedelta(minutes=tz_offset_minutes)
+    counts: Counter[int] = Counter()
+    rows = session.scalars(select(Play.played_at)).all()
+    for raw in rows:
+        dt = _parse_played_at(raw)
+        if dt is None:
+            continue
+        local = dt + offset
+        counts[local.hour] += 1
     return [{"hour": hour, "play_count": counts.get(hour, 0)} for hour in range(24)]
 
 
-def listening_by_day(session: Session, days: int = 30) -> list[dict]:
-    day_expr = func.substr(Play.played_at, 1, 10)
-    rows = session.execute(
-        select(day_expr.label("day"), func.count().label("play_count"))
-        .group_by(day_expr)
-        .order_by(day_expr.desc())
-        .limit(days)
-    ).all()
-    # Return chronological ascending for charts
-    items = [
-        {"day": row.day, "play_count": int(row.play_count)}
-        for row in rows
-        if row.day
-    ]
-    items.reverse()
+def listening_by_day(
+    session: Session, *, days: int = 30, tz_offset_minutes: int = 0
+) -> list[dict]:
+    offset = timedelta(minutes=tz_offset_minutes)
+    now_local = datetime.now(timezone.utc) + offset
+    start_local = (now_local - timedelta(days=days - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    counts: Counter[str] = Counter()
+    rows = session.scalars(select(Play.played_at)).all()
+    for raw in rows:
+        dt = _parse_played_at(raw)
+        if dt is None:
+            continue
+        local = dt + offset
+        day_key = local.date().isoformat()
+        if local >= start_local:
+            counts[day_key] += 1
+
+    items: list[dict] = []
+    for i in range(days):
+        day = (start_local + timedelta(days=i)).date().isoformat()
+        items.append({"day": day, "play_count": counts.get(day, 0)})
     return items

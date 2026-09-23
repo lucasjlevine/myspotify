@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { ImagePlus, Loader2, RefreshCw } from "lucide-react";
+import { AlbumArt } from "@/components/album-art";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { listPlays, syncPlays, type Play } from "@/lib/api";
+import { enrichAlbumImages, listPlays, syncPlays, type Play } from "@/lib/api";
 import { formatPlayedAt } from "@/lib/format";
 
 export default function HistoryPage() {
@@ -47,12 +48,28 @@ export default function HistoryPage() {
       try {
         const result = await syncPlays();
         setMessage(
-          `Fetched ${result.fetched} · inserted ${result.inserted} · skipped ${result.skipped}`,
+          `Fetched ${result.fetched} · inserted ${result.inserted} · skipped ${result.skipped}` +
+            (result.images_updated != null
+              ? ` · images ${result.images_updated}`
+              : ""),
         );
         const res = await listPlays(100);
         setPlays(res.plays);
       } catch (err) {
         setMessage(err instanceof Error ? err.message : "Sync failed");
+      }
+    });
+  }
+
+  function handleEnrich() {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const res = await enrichAlbumImages(100);
+        setMessage(`Art: fetched ${res.fetched} · updated ${res.updated}`);
+        load();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Enrich failed");
       }
     });
   }
@@ -68,14 +85,24 @@ export default function HistoryPage() {
             Recent plays stored locally — sync to pull from Spotify.
           </p>
         </div>
-        <Button variant="outline" onClick={handleSync} disabled={pending}>
-          {pending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="size-4" />
-          )}
-          Sync Now
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleEnrich} disabled={pending}>
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ImagePlus className="size-4" />
+            )}
+            Fetch art
+          </Button>
+          <Button variant="outline" onClick={handleSync} disabled={pending}>
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Sync Now
+          </Button>
+        </div>
       </div>
 
       {message && (
@@ -112,9 +139,14 @@ export default function HistoryPage() {
                 {plays.map((play, i) => (
                   <li
                     key={`${play.played_at}-${play.track_id}`}
-                    className="flex items-center gap-4 rounded-2xl px-3 py-2.5 transition-colors hover:bg-muted/50 animate-fade-up"
+                    className="flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors hover:bg-muted/50 animate-fade-up"
                     style={{ animationDelay: `${Math.min(i, 20) * 20}ms` }}
                   >
+                    <AlbumArt
+                      src={play.album_image_url}
+                      alt={play.album_name}
+                      size="sm"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{play.track_name}</p>
                       <p className="truncate text-xs text-muted-foreground">

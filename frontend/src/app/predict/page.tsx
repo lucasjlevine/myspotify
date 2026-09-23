@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { Suspense, useCallback, useEffect, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Label,
   XAxis,
   YAxis,
 } from "recharts";
 import { Loader2 } from "lucide-react";
+import { AlbumArt } from "@/components/album-art";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,10 +38,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   listModels,
   listPlays,
+  localTzOffsetMinutes,
   predictNext,
   type ModelInfo,
   type Play,
   type PredictResponse,
+  type WindowPreset,
 } from "@/lib/api";
 import { formatPlayedAt, formatScore } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -47,13 +52,36 @@ const scoreConfig = {
   score: { label: "Score", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
-export default function PredictPage() {
+const DEFAULT_WINDOWS: WindowPreset[] = [
+  { id: "latest", label: "Latest track", description: "Single most recent play" },
+  {
+    id: "hours_4",
+    label: "Last 4 hours",
+    description: "Everything played in the last 4 hours",
+  },
+  { id: "today", label: "Today", description: "Plays since local midnight" },
+  { id: "plays_10", label: "Last 10 plays", description: "Recent session slice" },
+  {
+    id: "plays_20",
+    label: "Last 20 plays",
+    description: "Longer session context",
+  },
+];
+
+function PredictInner() {
+  const searchParams = useSearchParams();
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [windows, setWindows] = useState<WindowPreset[]>(DEFAULT_WINDOWS);
   const [defaultModel, setDefaultModel] = useState("markov");
   const [model, setModel] = useState("markov");
-  const [k, setK] = useState(5);
+  const [windowId, setWindowId] = useState(
+    searchParams.get("window") ?? "hours_4",
+  );
+  const [k, setK] = useState(8);
   const [plays, setPlays] = useState<Play[]>([]);
-  const [seedId, setSeedId] = useState<string | null>(null);
+  const [seedId, setSeedId] = useState<string>(
+    searchParams.get("track_id") ?? "",
+  );
   const [result, setResult] = useState<PredictResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
@@ -69,10 +97,16 @@ export default function PredictPage() {
         ]);
         if (cancelled) return;
         setModels(modelsRes.models);
+        if (modelsRes.windows?.length) setWindows(modelsRes.windows);
         setDefaultModel(modelsRes.default);
-        setModel(modelsRes.default);
+        const preferred =
+          modelsRes.models.find((m) => m.id === "prompted" && m.trained)?.id ??
+          modelsRes.default;
+        setModel(preferred);
         setPlays(playsRes.plays);
-        if (playsRes.plays[0]) setSeedId(playsRes.plays[0].track_id);
+        if (!seedId && playsRes.plays[0]) {
+          setSeedId(playsRes.plays[0].track_id);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load");
@@ -84,6 +118,7 @@ export default function PredictPage() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const runPredict = useCallback(() => {
@@ -93,7 +128,9 @@ export default function PredictPage() {
         const res = await predictNext({
           k,
           model,
-          trackId: seedId,
+          trackId: windowId === "latest" ? seedId || null : null,
+          window: windowId,
+          tzOffsetMinutes: localTzOffsetMinutes(),
         });
         setResult(res);
       } catch (err) {
@@ -101,22 +138,21 @@ export default function PredictPage() {
         setError(err instanceof Error ? err.message : "Prediction failed");
       }
     });
-  }, [k, model, seedId]);
+  }, [k, model, seedId, windowId]);
 
   useEffect(() => {
     if (loadingMeta) return;
     const trained = models.some((m) => m.id === model && m.trained);
     if (!trained) return;
     runPredict();
-    // Intentionally only re-run when controls change — not when runPredict identity changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingMeta, model, k, seedId, models]);
+  }, [loadingMeta, model, k, seedId, windowId, models]);
 
   const chartData =
     result?.predictions.map((p) => ({
       name: p.track_name
-        ? p.track_name.length > 16
-          ? `${p.track_name.slice(0, 14)}…`
+        ? p.track_name.length > 14
+          ? `${p.track_name.slice(0, 12)}…`
           : p.track_name
         : p.track_id.slice(0, 8),
       score: p.score,
@@ -126,6 +162,8 @@ export default function PredictPage() {
     new Map(plays.map((p) => [p.track_id, p])).values(),
   ).slice(0, 25);
 
+  const seedCount = result?.seeds?.length ?? 0;
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8 animate-fade-up">
       <div>
@@ -133,7 +171,8 @@ export default function PredictPage() {
           Predict
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Compare next-song models against a seed from your history.
+          Seed from a listening window — playlist order matters less when we
+          blend recent context. Try the local <span className="text-primary">prompted</span> model.
         </p>
       </div>
 
@@ -143,9 +182,9 @@ export default function PredictPage() {
         </p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {loadingMeta
-          ? Array.from({ length: 4 }).map((_, i) => (
+          ? Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-20 rounded-4xl" />
             ))
           : models.map((m) => (
@@ -160,17 +199,19 @@ export default function PredictPage() {
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-heading font-medium">{m.id}</span>
+                  <span className="font-heading text-sm font-medium">{m.id}</span>
                   <Badge variant={m.trained ? "default" : "secondary"}>
-                    {m.trained ? "trained" : "missing"}
+                    {m.trained ? "ok" : "—"}
                   </Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {m.n_plays != null
-                    ? `${m.n_plays.toLocaleString()} plays`
-                    : m.id === defaultModel
-                      ? "default"
-                      : "—"}
+                  {m.backend
+                    ? m.backend
+                    : m.n_plays != null
+                      ? `${m.n_plays.toLocaleString()} plays`
+                      : m.id === defaultModel
+                        ? "default"
+                        : "—"}
                 </p>
               </button>
             ))}
@@ -178,30 +219,49 @@ export default function PredictPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Controls</CardTitle>
+          <CardTitle>Listening window</CardTitle>
           <CardDescription>
-            Seed defaults to your latest play; pick another track to explore.
+            Multi-track windows blend classical models; prompted ranks against
+            the whole session prompt.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs text-muted-foreground">Seed track</label>
-            <Select
-              value={seedId ?? undefined}
-              onValueChange={(v) => setSeedId(v)}
-            >
-              <SelectTrigger className="min-w-[220px] max-w-sm">
-                <SelectValue placeholder="Latest play" />
+            <label className="text-xs text-muted-foreground">Window</label>
+            <Select value={windowId} onValueChange={(v) => v && setWindowId(v)}>
+              <SelectTrigger className="min-w-[200px]">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {uniqueSeeds.map((p) => (
-                  <SelectItem key={p.track_id} value={p.track_id}>
-                    {p.track_name} — {p.artist_names}
+                {windows.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+
+          {windowId === "latest" && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs text-muted-foreground">Seed track</label>
+              <Select
+                value={seedId || undefined}
+                onValueChange={(v) => v && setSeedId(v)}
+              >
+                <SelectTrigger className="min-w-[220px] max-w-sm">
+                  <SelectValue placeholder="Latest play" />
+                </SelectTrigger>
+                <SelectContent>
+                  {uniqueSeeds.map((p) => (
+                    <SelectItem key={p.track_id} value={p.track_id}>
+                      {p.track_name} — {p.artist_names}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-muted-foreground" htmlFor="k-range">
@@ -228,29 +288,39 @@ export default function PredictPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Context</CardTitle>
+            <CardTitle>Seed context</CardTitle>
             <CardDescription>
               {result
-                ? `Model ${result.model.id}`
+                ? `${seedCount} play${seedCount === 1 ? "" : "s"} · model ${result.model.id}${
+                    result.model.backend ? ` (${result.model.backend})` : ""
+                  }`
                 : "Waiting for a prediction"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {pending && !result ? (
-              <Skeleton className="h-24 w-full rounded-3xl" />
-            ) : result ? (
-              <div className="space-y-1 animate-fade-up">
-                <p className="font-heading text-lg font-medium">
-                  {result.context.track_name}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {result.context.artist_names}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {result.context.album_name} ·{" "}
-                  {formatPlayedAt(result.context.played_at)}
-                </p>
-              </div>
+              <Skeleton className="h-32 w-full rounded-3xl" />
+            ) : result?.seeds?.length ? (
+              <ul className="max-h-56 space-y-2 overflow-y-auto animate-fade-up">
+                {result.seeds.map((p, i) => (
+                  <li key={`${p.played_at}-${p.track_id}`} className="flex items-center gap-3">
+                    <span className="w-5 text-xs tabular-nums text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <AlbumArt
+                      src={p.album_image_url}
+                      alt={p.album_name}
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{p.track_name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {p.artist_names} · {formatPlayedAt(p.played_at)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Train a model and sync plays to get started.
@@ -272,10 +342,19 @@ export default function PredictPage() {
                 config={scoreConfig}
                 className="aspect-[16/9] w-full animate-fade-up"
               >
-                <BarChart data={chartData} margin={{ left: 0, right: 8 }}>
+                <BarChart data={chartData} margin={{ left: 8, right: 8, bottom: 8 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={40} />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false}>
+                    <Label value="Track" position="insideBottom" offset={-2} />
+                  </XAxis>
+                  <YAxis tickLine={false} axisLine={false} width={44}>
+                    <Label
+                      value="Score"
+                      angle={-90}
+                      position="insideLeft"
+                      style={{ textAnchor: "middle" }}
+                    />
+                  </YAxis>
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar
                     dataKey="score"
@@ -303,6 +382,11 @@ export default function PredictPage() {
               <span className="w-6 font-heading text-lg text-primary tabular-nums">
                 {i + 1}
               </span>
+              <AlbumArt
+                src={p.album_image_url}
+                alt={p.album_name ?? p.track_name ?? ""}
+                size="sm"
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {p.track_name ?? p.track_id}
@@ -322,5 +406,19 @@ export default function PredictPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function PredictPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <Loader2 className="size-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <PredictInner />
+    </Suspense>
   );
 }

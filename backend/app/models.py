@@ -25,3 +25,4 @@ class Play(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     context_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     collected_at: Mapped[str] = mapped_column(Text, nullable=False)
+    album_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -54,16 +54,18 @@ Imports `spotify:track:` rows only. Upsert key: `(played_at, track_id)`.
 | `artist` | Other tracks by the same artist |
 | `cooccurrence` | Tracks that co-appear in a ±5 play window |
 | `item_knn` | sklearn cosine kNN on co-occurrence vectors |
+| `prompted` | Local TF-IDF ranker over a listening-window prompt (expandable to local LLM) |
 
 ```bash
 uv run python -m app.ml.train              # all models
 uv run python -m app.ml.train --model markov
+uv run python -m app.ml.train --model prompted
 curl "http://127.0.0.1:8000/predict/models"
-curl "http://127.0.0.1:8000/predict/next?k=5&model=item_knn"
-curl "http://127.0.0.1:8000/predict/next?k=5&model=markov&track_id=<spotify_track_id>"
+curl "http://127.0.0.1:8000/predict/next?k=8&model=prompted&window=hours_4&tz_offset_minutes=-240"
+curl "http://127.0.0.1:8000/predict/next?k=5&model=markov&window=today"
 ```
 
-Artifacts under `data/models/` (gitignored). Context defaults to the most recent stored play; pass `track_id` to seed from a specific track.
+Artifacts under `data/models/` (gitignored). Windows: `latest`, `hours_4`, `today`, `plays_10`, `plays_20` (or `hours:N` / `plays:N`). Classical models blend seeds with recency weights; `prompted` uses the full window as one prompt.
 
 ## Endpoints
 
@@ -73,15 +75,17 @@ Artifacts under `data/models/` (gitignored). Context defaults to the most recent
 | `GET` | `/authorize` | Start OAuth |
 | `GET` | `/authorize/callback` | Store tokens, redirect to frontend |
 | `GET` | `/auth/status` | Whether authorized (no tokens) |
-| `POST` | `/sync/plays` | Fetch & upsert recent plays |
+| `POST` | `/sync/plays` | Fetch & upsert recent plays (+ images when present) |
 | `GET` | `/plays?limit=50` | List stored plays |
-| `GET` | `/predict/models` | List predictors + train status |
-| `GET` | `/predict/next?k=5&model=markov&track_id=` | Predict next track(s) |
+| `GET` | `/predict/models` | List predictors + windows + train status |
+| `GET` | `/predict/windows` | Window presets |
+| `GET` | `/predict/next?k=5&model=markov&window=hours_4` | Predict next track(s) |
 | `GET` | `/stats/summary` | Listening totals |
 | `GET` | `/stats/top-tracks` | Most-played tracks |
 | `GET` | `/stats/top-artists` | Most-played artists |
-| `GET` | `/stats/listening-by-hour` | Plays by hour of day |
-| `GET` | `/stats/listening-by-day?days=30` | Daily play counts |
+| `GET` | `/stats/listening-by-hour?tz_offset_minutes=` | Plays by local hour |
+| `GET` | `/stats/listening-by-day?days=30&tz_offset_minutes=` | Daily play counts |
+| `POST` | `/tracks/enrich-images` | Backfill album art via Spotify |
 
 ## Layout
 

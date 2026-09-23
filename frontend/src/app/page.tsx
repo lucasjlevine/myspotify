@@ -1,15 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Label,
   Line,
   LineChart,
   XAxis,
   YAxis,
 } from "recharts";
+import { ArrowRight } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -24,6 +27,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { AlbumArt } from "@/components/album-art";
 import {
   getListeningByDay,
   getListeningByHour,
@@ -36,7 +41,13 @@ import {
   type TopArtist,
   type TopTrack,
 } from "@/lib/api";
-import { formatDayLabel, formatDuration, formatPlayedAt } from "@/lib/format";
+import {
+  formatDayLabel,
+  formatDuration,
+  formatHourLabel,
+  formatPlayedAt,
+  localTimeZoneName,
+} from "@/lib/format";
 
 const hourConfig = {
   play_count: { label: "Plays", color: "var(--chart-1)" },
@@ -44,10 +55,6 @@ const hourConfig = {
 
 const dayConfig = {
   play_count: { label: "Plays", color: "var(--chart-2)" },
-} satisfies ChartConfig;
-
-const topConfig = {
-  play_count: { label: "Plays", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
 export default function OverviewPage() {
@@ -58,6 +65,7 @@ export default function OverviewPage() {
   const [artists, setArtists] = useState<TopArtist[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const tzName = localTimeZoneName();
 
   useEffect(() => {
     let cancelled = false;
@@ -67,8 +75,8 @@ export default function OverviewPage() {
           getStatsSummary(),
           getListeningByHour(),
           getListeningByDay(30),
-          getTopTracks(8),
-          getTopArtists(8),
+          getTopTracks(5),
+          getTopArtists(5),
         ]);
         if (cancelled) return;
         setSummary(s);
@@ -91,28 +99,12 @@ export default function OverviewPage() {
 
   const hourData = hours.map((h) => ({
     ...h,
-    label: `${String(h.hour).padStart(2, "0")}`,
+    label: formatHourLabel(h.hour),
   }));
 
   const dayData = days.map((d) => ({
     ...d,
     label: formatDayLabel(d.day),
-  }));
-
-  const trackChart = tracks.map((t) => ({
-    name:
-      t.track_name.length > 18
-        ? `${t.track_name.slice(0, 16)}…`
-        : t.track_name,
-    play_count: t.play_count,
-  }));
-
-  const artistChart = artists.map((a) => ({
-    name:
-      a.artist_names.length > 18
-        ? `${a.artist_names.slice(0, 16)}…`
-        : a.artist_names,
-    play_count: a.play_count,
   }));
 
   return (
@@ -122,7 +114,7 @@ export default function OverviewPage() {
           Overview
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Your listening shape — totals, rhythms, and favorites.
+          Your listening shape — times shown in {tzName}.
         </p>
       </div>
 
@@ -174,20 +166,29 @@ export default function OverviewPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="animate-fade-up" style={{ animationDelay: "60ms" }}>
+        <Card className="animate-fade-up">
           <CardHeader>
             <CardTitle>By hour of day</CardTitle>
-            <CardDescription>When you press play (UTC)</CardDescription>
+            <CardDescription>Local time ({tzName})</CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
               <Skeleton className="aspect-video w-full rounded-3xl" />
             ) : (
               <ChartContainer config={hourConfig} className="aspect-[16/9] w-full">
-                <BarChart data={hourData} margin={{ left: 0, right: 8 }}>
+                <BarChart data={hourData} margin={{ left: 8, right: 8, bottom: 8 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} width={32} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} interval={3}>
+                    <Label value="Hour of day" position="insideBottom" offset={-2} />
+                  </XAxis>
+                  <YAxis tickLine={false} axisLine={false} width={40}>
+                    <Label
+                      value="Plays"
+                      angle={-90}
+                      position="insideLeft"
+                      style={{ textAnchor: "middle" }}
+                    />
+                  </YAxis>
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Bar
                     dataKey="play_count"
@@ -200,25 +201,34 @@ export default function OverviewPage() {
           </CardContent>
         </Card>
 
-        <Card className="animate-fade-up" style={{ animationDelay: "120ms" }}>
+        <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
           <CardHeader>
             <CardTitle>Last 30 days</CardTitle>
-            <CardDescription>Daily play volume</CardDescription>
+            <CardDescription>Daily play volume ({tzName})</CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
               <Skeleton className="aspect-video w-full rounded-3xl" />
             ) : (
               <ChartContainer config={dayConfig} className="aspect-[16/9] w-full">
-                <LineChart data={dayData} margin={{ left: 0, right: 8 }}>
+                <LineChart data={dayData} margin={{ left: 8, right: 8, bottom: 8 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="label"
                     tickLine={false}
                     axisLine={false}
                     interval="preserveStartEnd"
-                  />
-                  <YAxis tickLine={false} axisLine={false} width={32} />
+                  >
+                    <Label value="Date" position="insideBottom" offset={-2} />
+                  </XAxis>
+                  <YAxis tickLine={false} axisLine={false} width={40}>
+                    <Label
+                      value="Plays"
+                      angle={-90}
+                      position="insideLeft"
+                      style={{ textAnchor: "middle" }}
+                    />
+                  </YAxis>
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Line
                     type="monotone"
@@ -232,76 +242,89 @@ export default function OverviewPage() {
             )}
           </CardContent>
         </Card>
+      </div>
 
-        <Card className="animate-fade-up" style={{ animationDelay: "180ms" }}>
-          <CardHeader>
-            <CardTitle>Top tracks</CardTitle>
-            <CardDescription>Most played in your library</CardDescription>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-2">
+            <div>
+              <CardTitle>Top tracks</CardTitle>
+              <CardDescription>Most played in your library</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" render={<Link href="/tops/tracks" />}>
+              See all
+              <ArrowRight className="size-4" />
+            </Button>
           </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="aspect-video w-full rounded-3xl" />
-            ) : (
-              <ChartContainer config={topConfig} className="aspect-[16/9] w-full">
-                <BarChart
-                  data={trackChart}
-                  layout="vertical"
-                  margin={{ left: 8, right: 8 }}
-                >
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-                  <XAxis type="number" tickLine={false} axisLine={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={100}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="play_count"
-                    fill="var(--color-play_count)"
-                    radius={[0, 6, 6, 0]}
-                  />
-                </BarChart>
-              </ChartContainer>
-            )}
+          <CardContent className="space-y-2">
+            {loading
+              ? Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+                ))
+              : tracks.map((t, i) => (
+                  <div
+                    key={t.track_id}
+                    className="flex items-center gap-3 rounded-2xl px-2 py-1.5"
+                  >
+                    <span className="w-5 text-sm tabular-nums text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <AlbumArt
+                      src={t.album_image_url}
+                      alt={t.album_name}
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{t.track_name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t.artist_names}
+                      </p>
+                    </div>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {t.play_count}
+                    </span>
+                  </div>
+                ))}
           </CardContent>
         </Card>
 
-        <Card className="animate-fade-up" style={{ animationDelay: "240ms" }}>
-          <CardHeader>
-            <CardTitle>Top artists</CardTitle>
-            <CardDescription>Who you return to most</CardDescription>
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-2">
+            <div>
+              <CardTitle>Top artists</CardTitle>
+              <CardDescription>Who you return to most</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" render={<Link href="/tops/artists" />}>
+              See all
+              <ArrowRight className="size-4" />
+            </Button>
           </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="aspect-video w-full rounded-3xl" />
-            ) : (
-              <ChartContainer config={topConfig} className="aspect-[16/9] w-full">
-                <BarChart
-                  data={artistChart}
-                  layout="vertical"
-                  margin={{ left: 8, right: 8 }}
-                >
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-                  <XAxis type="number" tickLine={false} axisLine={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={100}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="play_count"
-                    fill="var(--color-play_count)"
-                    radius={[0, 6, 6, 0]}
-                  />
-                </BarChart>
-              </ChartContainer>
-            )}
+          <CardContent className="space-y-2">
+            {loading
+              ? Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+                ))
+              : artists.map((a, i) => (
+                  <div
+                    key={a.artist_names}
+                    className="flex items-center gap-3 rounded-2xl px-2 py-1.5"
+                  >
+                    <span className="w-5 text-sm tabular-nums text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <AlbumArt
+                      src={a.album_image_url}
+                      alt={a.artist_names}
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{a.artist_names}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {a.unique_tracks} tracks · {a.play_count} plays
+                      </p>
+                    </div>
+                  </div>
+                ))}
           </CardContent>
         </Card>
       </div>

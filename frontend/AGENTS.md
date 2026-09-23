@@ -21,6 +21,8 @@ Next.js dashboard for listening stats, next-song prediction, and play history. P
 - API client: `src/lib/api/` (one module per backend router area)
 - UI: shadcn under `src/components/ui/`; shell in `src/components/app-shell.tsx`
 - Theme: dark Spotify-inspired tokens in `src/app/globals.css` (Outfit + Syne)
+- Album art: `AlbumArt` component; enrich via `POST /tracks/enrich-images`
+- Predict windows: pass `window` + `tz_offset_minutes` from the client
 - New backend endpoints → add a typed function in `src/lib/api/`, then wire a page
 
 ## Commands

@@ -9,6 +9,7 @@ from app.ml.cooccurrence import CooccurrencePredictor
 from app.ml.item_knn import ItemKnnPredictor
 from app.ml.markov import MarkovPredictor
 from app.ml.popularity import PopularityPredictor
+from app.ml.prompted import PromptedPredictor
 from app.ml.protocol import NextSongPredictor
 
 MODELS_DIR = DATA_DIR / "models"
@@ -21,9 +22,12 @@ REGISTRY: dict[str, Factory] = {
     "artist": ArtistPredictor,
     "cooccurrence": CooccurrencePredictor,
     "item_knn": ItemKnnPredictor,
+    "prompted": PromptedPredictor,
 }
 
 DEFAULT_MODEL_ID = "markov"
+
+_BINARY_MODELS = {"item_knn", "prompted"}
 
 
 def list_model_ids() -> list[str]:
@@ -39,13 +43,13 @@ def create_predictor(model_id: str) -> NextSongPredictor:
 
 
 def artifact_path(model_id: str) -> Path:
-    if model_id == "item_knn":
-        return MODELS_DIR / "item_knn.joblib"
+    if model_id in _BINARY_MODELS:
+        return MODELS_DIR / f"{model_id}.joblib"
     return MODELS_DIR / f"{model_id}.json"
 
 
 def metadata_path(model_id: str) -> Path:
-    """Sidecar JSON for models that use binary artifacts (item_knn)."""
+    """Sidecar JSON for models that use binary artifacts."""
     return MODELS_DIR / f"{model_id}.meta.json"
 
 
@@ -53,6 +57,6 @@ def is_trained(model_id: str) -> bool:
     path = artifact_path(model_id)
     if not path.exists():
         return False
-    if model_id == "item_knn":
+    if model_id in _BINARY_MODELS:
         return metadata_path(model_id).exists()
     return True

@@ -8,6 +8,8 @@ import {
   History,
   LayoutDashboard,
   Loader2,
+  Mic2,
+  Music2,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -19,6 +21,8 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/predict", label: "Predict", icon: Sparkles },
+  { href: "/tops/tracks", label: "Top tracks", icon: Music2 },
+  { href: "/tops/artists", label: "Top artists", icon: Mic2 },
   { href: "/history", label: "History", icon: History },
 ] as const;
 
@@ -127,8 +131,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {active && (
                   <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary transition-all" />
                 )}
-                <Icon className="size-4" />
-                {label}
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{label}</span>
               </Link>
             );
           })}

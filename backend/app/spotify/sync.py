@@ -5,6 +5,7 @@ from app.config import settings
 from app.database import session_scope
 from app import repositories
 from app.spotify.auth import get_access_token
+from app.spotify.tracks import pick_album_image
 
 
 def normalize_play(item: dict) -> dict | None:
@@ -26,6 +27,7 @@ def normalize_play(item: dict) -> dict | None:
         "album_name": album.get("name") or "",
         "duration_ms": int(track.get("duration_ms") or 0),
         "context_uri": context.get("uri"),
+        "album_image_url": pick_album_image(album.get("images")),
     }
 
 
@@ -50,4 +52,10 @@ def sync_recently_played() -> dict:
     plays = [play for item in items if (play := normalize_play(item)) is not None]
     with session_scope() as session:
         inserted, skipped = repositories.upsert_plays(session, plays)
-    return {"fetched": len(plays), "inserted": inserted, "skipped": skipped}
+        updated_images = repositories.fill_missing_album_images(session, plays)
+    return {
+        "fetched": len(plays),
+        "inserted": inserted,
+        "skipped": skipped,
+        "images_updated": updated_images,
+    }
