@@ -1,0 +1,13 @@
+{
+  "name": "myspotify",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c green,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && uv run main.py",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && uv sync"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

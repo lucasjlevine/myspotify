@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     spotify_api_scope: str
     spotify_refresh_token: str = ""
 
+    frontend_url: str = "http://localhost:3000"
+
     database_url: str = f"sqlite:///{DATA_DIR / 'plays.db'}"
     poll_interval_seconds: int = 15 * 60
     token_expiry_skew_seconds: int = 60

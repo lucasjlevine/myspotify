@@ -13,6 +13,7 @@ SPOTIFY_CLIENT_SECRET=<dashboard>
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8000/authorize/callback
 SPOTIFY_REFRESH_TOKEN=
 SPOTIFY_API_SCOPE=user-read-email user-read-private user-top-read user-read-recently-played user-read-playback-state user-read-currently-playing user-library-read playlist-read-private playlist-read-collaborative user-follow-read
+FRONTEND_URL=http://localhost:3000
 ```
 
 2. Spotify Dashboard redirect URI must match exactly (`127.0.0.1`, not `localhost`).
@@ -44,6 +45,16 @@ uv run python -m app.import_history
 
 Imports `spotify:track:` rows only. Upsert key: `(played_at, track_id)`.
 
+## Album artwork
+
+Most history imports have no images. Backfill from the Spotify Web API (most-played first, 50 ids/request):
+
+```bash
+uv run python -m app.enrich_images --batches 40
+# or from the UI: Top tracks → Fetch art (runs ~30 batches)
+curl -X POST "http://127.0.0.1:8000/tracks/enrich-images?batches=20"
+```
+
 ## Next-song predictors
 
 | id | Idea |
@@ -53,26 +64,41 @@ Imports `spotify:track:` rows only. Upsert key: `(played_at, track_id)`.
 | `artist` | Other tracks by the same artist |
 | `cooccurrence` | Tracks that co-appear in a ±5 play window |
 | `item_knn` | sklearn cosine kNN on co-occurrence vectors |
+| `prompted` | Local TF-IDF ranker over a listening-window prompt |
+| `embedding` | Local ONNX song-space (fastembed); neighbors + free-text mood prompts |
 
 ```bash
 uv run python -m app.ml.train              # all models
 uv run python -m app.ml.train --model markov
+uv run python -m app.ml.train --model prompted
+uv run python -m app.ml.train --model embedding
 curl "http://127.0.0.1:8000/predict/models"
-curl "http://127.0.0.1:8000/predict/next?k=5&model=item_knn"
+curl "http://127.0.0.1:8000/predict/next?k=8&model=embedding&window=hours_4&tz_offset_minutes=-240"
+curl "http://127.0.0.1:8000/predict/prompt?q=Rainy%20fall%20day&k=10"
 ```
 
-Artifacts under `data/models/` (gitignored). Context = most recent stored play.
+Artifacts under `data/models/` (gitignored). Windows: `latest`, `hours_4`, `today`, `plays_10`, `plays_20` (or `hours:N` / `plays:N`). Classical models blend seeds with recency weights; `prompted` / `embedding` use the full window. Phrase search uses the same embedding space via `/predict/prompt`.
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/health` | Liveness |
 | `GET` | `/authorize` | Start OAuth |
-| `GET` | `/authorize/callback` | Store tokens |
-| `POST` | `/sync/plays` | Fetch & upsert recent plays |
+| `GET` | `/authorize/callback` | Store tokens, redirect to frontend |
+| `GET` | `/auth/status` | Whether authorized (no tokens) |
+| `POST` | `/sync/plays` | Fetch & upsert recent plays (+ images when present) |
 | `GET` | `/plays?limit=50` | List stored plays |
-| `GET` | `/predict/models` | List predictors + train status |
-| `GET` | `/predict/next?k=5&model=markov` | Predict next track(s) |
+| `GET` | `/predict/models` | List predictors + windows + train status |
+| `GET` | `/predict/windows` | Window presets |
+| `GET` | `/predict/next?k=5&model=markov&window=hours_4` | Predict next track(s) |
+| `GET` | `/predict/prompt?q=…&k=10` | Mood/phrase → nearest tracks (`embedding`) |
+| `GET` | `/stats/summary` | Listening totals |
+| `GET` | `/stats/top-tracks` | Most-played tracks |
+| `GET` | `/stats/top-artists` | Most-played artists |
+| `GET` | `/stats/listening-by-hour?tz_offset_minutes=` | Plays by local hour |
+| `GET` | `/stats/listening-by-day?days=30&tz_offset_minutes=` | Daily play counts |
+| `POST` | `/tracks/enrich-images` | Backfill album art via Spotify |
 
 ## Layout
 

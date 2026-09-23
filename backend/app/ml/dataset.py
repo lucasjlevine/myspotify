@@ -37,6 +37,7 @@ def build_training_data(plays: list[Play]) -> TrainingData:
         played_ats=[p.played_at for p in plays],
         transitions=build_transitions(plays),
         n_plays=len(plays),
+        track_names=[p.track_name for p in plays],
     )
 
 
