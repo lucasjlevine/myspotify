@@ -33,17 +33,18 @@ function clampScale(s: number) {
 function project(
   wx: number,
   wy: number,
-  *,
-  width: number,
-  height: number,
-  scale: number,
-  panX: number,
-  panY: number,
+  opts: {
+    width: number;
+    height: number;
+    scale: number;
+    panX: number;
+    panY: number;
+  },
 ) {
-  const radius = Math.min(width, height) * 0.4 * scale;
+  const radius = Math.min(opts.width, opts.height) * 0.4 * opts.scale;
   return {
-    x: width / 2 + panX + wx * radius,
-    y: height / 2 + panY + wy * radius,
+    x: opts.width / 2 + opts.panX + wx * radius,
+    y: opts.height / 2 + opts.panY + wy * radius,
   };
 }
 
