@@ -101,18 +101,18 @@ def fetch_audio_features(track_ids: list[str]) -> dict[str, dict[str, float]]:
     for start in range(0, len(track_ids), 40):
         batch = track_ids[start : start + 40]
         payload = None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 response = requests.get(
                     RECCOBEATS_FEATURES_URL,
                     params={"ids": ",".join(batch)},
-                    timeout=60,
+                    timeout=20,
                 )
             except requests.exceptions.RequestException as exc:
                 logger.warning(
                     "reccobeats request error (attempt %s): %s", attempt + 1, exc
                 )
-                time.sleep(0.8 * (attempt + 1))
+                time.sleep(0.4 * (attempt + 1))
                 continue
             if response.status_code != 200:
                 logger.warning(

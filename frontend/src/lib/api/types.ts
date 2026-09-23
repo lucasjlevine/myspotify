@@ -85,6 +85,35 @@ export type PromptSearchResponse = {
   predictions: Prediction[];
 };
 
+export type SpacePoint = {
+  id: string;
+  kind: "query" | "neighbor" | "context";
+  x: number;
+  y: number;
+  score?: number;
+  label?: string;
+  annotated?: boolean;
+  track_id?: string;
+  track_name?: string;
+  artist_names?: string;
+  album_name?: string;
+  album_image_url?: string | null;
+};
+
+export type SpaceEdge = {
+  source: string;
+  target: string;
+  weight: number;
+  kind: string;
+};
+
+export type SpaceResponse = {
+  query: string;
+  model: PromptSearchResponse["model"] & { text_dim?: number | null };
+  points: SpacePoint[];
+  edges: SpaceEdge[];
+};
+
 export type StatsSummary = {
   total_plays: number;
   unique_tracks: number;

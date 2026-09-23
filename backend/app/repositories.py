@@ -353,7 +353,13 @@ def upsert_track_meta(session: Session, rows: list[dict]) -> int:
     for row in rows:
         existing = session.get(TrackMeta, row["track_id"])
         if existing is None:
-            session.add(TrackMeta(**row))
+            # Ensure required columns exist for partial (genres-only) rows
+            payload = {**row}
+            if "enriched_at" not in payload:
+                from app.spotify.catalog import now_iso
+
+                payload["enriched_at"] = now_iso()
+            session.add(TrackMeta(**{k: v for k, v in payload.items() if hasattr(TrackMeta, k)}))
         else:
             for key, value in row.items():
                 if key == "track_id":
@@ -369,13 +375,29 @@ def track_ids_missing_meta(
     limit: int = 100,
     *,
     retry_after_minutes: int = 45,
+    mode: str = "features",
 ) -> list[str]:
-    """Most-played tracks lacking audio features.
+    """Most-played tracks needing catalog enrichment.
 
-    Prefer never-seen tracks, then feature-less rows whose last enrich
-    attempt is older than ``retry_after_minutes`` (avoids hot-looping the
-    same ids when ReccoBeats is down).
+    mode="features": missing audio features (with cooldown on recent attempts)
+    mode="genres": missing TrackMeta row or empty genres (Spotify-only path)
     """
+    ranked = session.execute(
+        select(Play.track_id, func.count().label("n"))
+        .group_by(Play.track_id)
+        .order_by(func.count().desc())
+    ).all()
+
+    if mode == "genres":
+        # Any non-NULL genres column counts as attempted ("" = no Spotify genres)
+        attempted = {
+            r[0]
+            for r in session.execute(
+                select(TrackMeta.track_id).where(TrackMeta.genres.isnot(None))
+            ).all()
+        }
+        return [tid for tid, _ in ranked if tid not in attempted][:limit]
+
     have_features = {
         r[0]
         for r in session.execute(
@@ -396,12 +418,6 @@ def track_ids_missing_meta(
         and enriched_at
         and enriched_at >= cooldown_cutoff
     }
-
-    ranked = session.execute(
-        select(Play.track_id, func.count().label("n"))
-        .group_by(Play.track_id)
-        .order_by(func.count().desc())
-    ).all()
 
     never_seen = [tid for tid, _ in ranked if tid not in have_meta]
     if never_seen:
@@ -451,6 +467,8 @@ def meta_coverage(session: Session) -> dict:
         "with_features": with_features,
         "with_genres": with_genres,
         "missing_features": max(0, total - with_features),
+        "missing_meta": max(0, total - with_meta),
+        "coverage_note": "Counts are unique tracks (not plays).",
     }
 
 

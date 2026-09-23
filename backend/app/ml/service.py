@@ -276,3 +276,57 @@ def search_by_prompt(q: str, *, k: int = 10, model: str = "embedding") -> dict:
         },
         "predictions": predictions,
     }
+
+
+def project_prompt_space(
+    q: str,
+    *,
+    k: int = 24,
+    context: int = 48,
+    model: str = "embedding",
+) -> dict:
+    """2D PCA constellation around a mood prompt."""
+    text = (q or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="empty_query")
+    if model not in list_model_ids():
+        raise HTTPException(status_code=400, detail=f"unknown_model:{model}")
+
+    predictor = load_predictor(model)
+    project = getattr(predictor, "project_space", None)
+    if project is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"model_no_space_project:{model} — use model=embedding",
+        )
+
+    payload = project(text, k=k, context=context)
+    track_ids = [
+        p["id"] for p in payload.get("points") or [] if p.get("kind") != "query"
+    ]
+    with session_scope() as session:
+        meta = _track_meta_map(session, track_ids)
+
+    points = []
+    for p in payload.get("points") or []:
+        item = dict(p)
+        if p.get("kind") != "query":
+            item.update(meta.get(p["id"], {}))
+            item["track_id"] = p["id"]
+        points.append(item)
+
+    return {
+        "query": text,
+        "model": {
+            "id": model,
+            "path": str(artifact_path(model)),
+            "backend": getattr(predictor, "backend", None),
+            "model_name": getattr(predictor, "model_name", None),
+            "trained_at": getattr(predictor, "trained_at", None),
+            "n_tracks": getattr(predictor, "n_tracks", None),
+            "dim": getattr(predictor, "dim", None),
+            "text_dim": getattr(predictor, "text_dim", None),
+        },
+        "points": points,
+        "edges": payload.get("edges") or [],
+    }

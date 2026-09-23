@@ -92,22 +92,26 @@ def get_meta_coverage():
 @router.post("/tracks/enrich-features")
 def enrich_track_features(
     batches: int = Query(default=5, ge=1, le=50),
-    limit: int = Query(default=40, ge=1, le=50),
+    limit: int = Query(default=50, ge=1, le=50),
+    genres_only: bool = Query(default=False),
 ):
-    """Enrich genres (Spotify artists) + audio features (ReccoBeats)."""
+    """Enrich genres (Spotify artists) + optional audio features (ReccoBeats)."""
     from app.enrich_features import enrich_batch
 
+    mode = "genres" if genres_only else "features"
     total = 0
     for _ in range(batches):
         with session_scope() as session:
-            missing = repositories.track_ids_missing_meta(session, limit=limit)
+            missing = repositories.track_ids_missing_meta(
+                session, limit=limit, mode=mode
+            )
         if not missing:
             break
-        total += enrich_batch(missing)
+        total += enrich_batch(missing, genres_only=genres_only)
 
     with session_scope() as session:
         coverage = repositories.meta_coverage(session)
-    return {"enriched": total, **coverage}
+    return {"enriched": total, "genres_only": genres_only, **coverage}
 
 
 class EnrichImagesBody(BaseModel):

@@ -3,6 +3,7 @@ import type {
   ModelsResponse,
   PredictResponse,
   PromptSearchResponse,
+  SpaceResponse,
   WindowPreset,
 } from "./types";
 
@@ -44,4 +45,18 @@ export function searchByPrompt(opts: {
   params.set("k", String(opts.k ?? 10));
   params.set("model", opts.model ?? "embedding");
   return apiFetch<PromptSearchResponse>(`/predict/prompt?${params.toString()}`);
+}
+
+export function projectPromptSpace(opts: {
+  q: string;
+  k?: number;
+  context?: number;
+  model?: string;
+}) {
+  const params = new URLSearchParams();
+  params.set("q", opts.q);
+  params.set("k", String(opts.k ?? 24));
+  params.set("context", String(opts.context ?? 48));
+  params.set("model", opts.model ?? "embedding");
+  return apiFetch<SpaceResponse>(`/predict/space?${params.toString()}`);
 }

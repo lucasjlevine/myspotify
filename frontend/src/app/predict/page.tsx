@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   Bar,
@@ -220,7 +221,11 @@ function PredictInner() {
         <CardHeader>
           <CardTitle>Mood prompt</CardTitle>
           <CardDescription>
-            free-text → nearest tracks in embedding space (local ONNX)
+            free-text → nearest tracks — or open{" "}
+            <Link href="/space" className="text-primary underline-offset-2 hover:underline">
+              Song space
+            </Link>{" "}
+            for the constellation view
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -43,10 +43,10 @@ From repo root: `npm run dev` (backend + frontend).
 - OAuth success redirects to `FRONTEND_URL/auth/callback`
 - Predict windows: `latest` | `hours_4` | `today` | `plays_N` (blend classical; prompted uses full window)
 - `prompted` is local TF-IDF today — keep the prompt builder so an Ollama backend can plug in later
-- `embedding` is local fastembed+audio: genres/mood phrases + 9-d features; `GET /predict/prompt?q=…`
+- `embedding` is local fastembed+audio: genres/mood phrases + 9-d features; `GET /predict/prompt?q=…` + `GET /predict/space?q=…` (2D PCA constellation)
 - Tops: `time_range=short_term|medium_term|long_term` with 3-plays/day cap (anti sleep-loop)
 - Album art: `album_image_url` on plays; `POST /tracks/enrich-images` backfills via Spotify
-- Features: `TrackMeta` + `POST /tracks/enrich-features` (Spotify genres, ReccoBeats audio)
+- Features: `TrackMeta` + `POST /tracks/enrich-features` (Spotify genres, ReccoBeats audio). Coverage is unique tracks, not plays.
 
 ## Do not commit
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
 
 from app.ml.registry import DEFAULT_MODEL_ID
-from app.ml.service import list_models, predict_next, search_by_prompt
+from app.ml.service import list_models, predict_next, project_prompt_space, search_by_prompt
 from app.ml.windows import list_window_presets
 
 router = APIRouter(tags=["predict"])
@@ -53,3 +53,17 @@ def predict_from_prompt(
     Requires a trained `embedding` model.
     """
     return search_by_prompt(q, k=k, model=model)
+
+
+@router.get("/predict/space")
+def predict_space(
+    q: str = Query(..., min_length=1, max_length=500),
+    k: int = Query(default=24, ge=4, le=60),
+    context: int = Query(default=48, ge=0, le=120),
+    model: str = Query(default="embedding"),
+):
+    """2D PCA constellation: prompt + neighbors + background tracks.
+
+    Coordinates are normalized around the query for constellation UIs.
+    """
+    return project_prompt_space(q, k=k, context=context, model=model)

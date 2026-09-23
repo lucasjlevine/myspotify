@@ -235,6 +235,132 @@ class EmbeddingPredictor:
         rescored.sort(key=lambda x: x[1], reverse=True)
         return rescored[:k]
 
+    def project_space(
+        self,
+        prompt: str,
+        *,
+        k: int = 24,
+        context: int = 48,
+    ) -> dict:
+        """PCA-project query + neighbors (+ background sample) into 2D.
+
+        Returns normalized coords in [-1, 1] for constellation UIs.
+        """
+        from sklearn.decomposition import PCA
+
+        text = (prompt or "").strip()
+        if not text or self.matrix is None or self.matrix.shape[0] == 0:
+            return {"query": text, "points": [], "edges": []}
+
+        query = self._prompt_vector(text)
+        if query.size == 0:
+            return {"query": text, "points": [], "edges": []}
+
+        neighbors = self.search_text(text, k=k)
+        neighbor_ids = [tid for tid, _ in neighbors]
+        neighbor_set = set(neighbor_ids)
+
+        # Background dust: tracks far from the query for spatial contrast
+        context_ids: list[str] = []
+        if context > 0 and self.nn is not None:
+            n_probe = min(self.matrix.shape[0], max(k + context + 20, 80))
+            distances, indices = self.nn.kneighbors(
+                query.reshape(1, -1), n_neighbors=n_probe
+            )
+            # Take from the farther half of the probe
+            far = list(indices[0][::-1])
+            for idx in far:
+                tid = self.index_track[int(idx)]
+                if tid in neighbor_set:
+                    continue
+                context_ids.append(tid)
+                if len(context_ids) >= context:
+                    break
+
+        rows: list[np.ndarray] = [query]
+        meta: list[dict] = [
+            {
+                "id": "__query__",
+                "kind": "query",
+                "label": text,
+                "score": 1.0,
+            }
+        ]
+        for tid, score in neighbors:
+            idx = self.track_index.get(tid)
+            if idx is None:
+                continue
+            rows.append(self.matrix[idx])
+            doc = self.documents[idx] if idx < len(self.documents) else ""
+            meta.append(
+                {
+                    "id": tid,
+                    "kind": "neighbor",
+                    "score": float(score),
+                    "annotated": "Mood:" in doc or "Genres:" in doc,
+                }
+            )
+        for tid in context_ids:
+            idx = self.track_index.get(tid)
+            if idx is None:
+                continue
+            rows.append(self.matrix[idx])
+            # Cosine similarity to query for faint edges
+            sim = float(np.dot(query, self.matrix[idx]))
+            meta.append(
+                {
+                    "id": tid,
+                    "kind": "context",
+                    "score": sim,
+                    "annotated": False,
+                }
+            )
+
+        stacked = np.stack(rows, axis=0)
+        n_comp = 2 if stacked.shape[0] >= 2 else 1
+        coords = PCA(n_components=n_comp, random_state=0).fit_transform(stacked)
+        if n_comp == 1:
+            coords = np.concatenate(
+                [coords, np.zeros((coords.shape[0], 1), dtype=coords.dtype)],
+                axis=1,
+            )
+        # Center on the query, scale to roughly [-1, 1]
+        coords = coords - coords[0]
+        max_abs = float(np.max(np.abs(coords))) or 1.0
+        coords = coords / max_abs
+
+        points = []
+        for i, info in enumerate(meta):
+            points.append(
+                {
+                    **info,
+                    "x": float(coords[i, 0]),
+                    "y": float(coords[i, 1]),
+                }
+            )
+
+        edges = []
+        for p in points:
+            if p["kind"] == "query":
+                continue
+            edges.append(
+                {
+                    "source": "__query__",
+                    "target": p["id"],
+                    "weight": float(p.get("score") or 0.0),
+                    "kind": p["kind"],
+                }
+            )
+
+        return {
+            "query": text,
+            "dim": self.dim,
+            "text_dim": self.text_dim,
+            "n_tracks": self.n_tracks,
+            "points": points,
+            "edges": edges,
+        }
+
     def predict(self, context: PredictContext, k: int = 5) -> list[Prediction]:
         exclude = set(context.recent_track_ids) | {context.track_id}
         vectors: list[np.ndarray] = []

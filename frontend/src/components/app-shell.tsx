@@ -9,6 +9,7 @@ import {
   Loader2,
   Mic2,
   Music2,
+  Orbit,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/space", label: "Song space", icon: Orbit },
   { href: "/predict", label: "Predict", icon: Sparkles },
   { href: "/tops/tracks", label: "Top tracks", icon: Music2 },
   { href: "/tops/artists", label: "Top artists", icon: Mic2 },

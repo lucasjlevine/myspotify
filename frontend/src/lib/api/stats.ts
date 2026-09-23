@@ -93,18 +93,25 @@ export type MetaCoverage = {
   with_features: number;
   with_genres: number;
   missing_features: number;
+  missing_meta?: number;
+  coverage_note?: string;
 };
 
 export function getMetaCoverage() {
   return apiFetch<MetaCoverage>("/tracks/meta-coverage");
 }
 
-export function enrichTrackFeatures(opts?: { batches?: number; limit?: number }) {
+export function enrichTrackFeatures(opts?: {
+  batches?: number;
+  limit?: number;
+  genresOnly?: boolean;
+}) {
   const params = new URLSearchParams({
     batches: String(opts?.batches ?? 5),
-    limit: String(opts?.limit ?? 40),
+    limit: String(opts?.limit ?? 50),
+    genres_only: String(opts?.genresOnly ?? false),
   });
-  return apiFetch<{ enriched: number } & MetaCoverage>(
+  return apiFetch<{ enriched: number; genres_only?: boolean } & MetaCoverage>(
     `/tracks/enrich-features?${params}`,
     { method: "POST" },
   );
