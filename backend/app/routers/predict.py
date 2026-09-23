@@ -1,11 +1,21 @@
 from fastapi import APIRouter, Query
 
-from app.ml import predict_next
+from app.ml.registry import DEFAULT_MODEL_ID
+from app.ml.service import list_models, predict_next
 
 router = APIRouter(tags=["predict"])
 
 
+@router.get("/predict/models")
+def predict_models():
+    """List available predictor models and training status."""
+    return list_models()
+
+
 @router.get("/predict/next")
-def predict_next_song(k: int = Query(default=5, ge=1, le=50)):
+def predict_next_song(
+    k: int = Query(default=5, ge=1, le=50),
+    model: str = Query(default=DEFAULT_MODEL_ID),
+):
     """Predict the next track(s) given the most recent stored play."""
-    return predict_next(k=k)
+    return predict_next(k=k, model=model)

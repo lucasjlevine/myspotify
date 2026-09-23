@@ -1,51 +1,81 @@
-"""Train the Markov next-song baseline from accumulated plays.
+"""Train next-song predictors from accumulated plays.
 
 Usage (from backend/):
     uv run python -m app.ml.train
+    uv run python -m app.ml.train --model markov
+    uv run python -m app.ml.train --model all
 """
 
 from __future__ import annotations
 
+import argparse
+
 from app.database import init_db, session_scope
-from app.ml.dataset import build_transitions, load_plays_chronological
-from app.ml.markov import MarkovPredictor
-from app.ml.service import model_path
+from app.ml.dataset import build_training_data, load_plays_chronological
+from app.ml.registry import (
+    artifact_path,
+    create_predictor,
+    list_model_ids,
+)
 
 
-def train(*, output_path=None) -> dict:
+def train_models(model_ids: list[str]) -> list[dict]:
     init_db()
-    artifact = output_path or model_path()
-
     with session_scope() as session:
         plays = load_plays_chronological(session)
-        transitions = build_transitions(plays)
+        if len(plays) < 2:
+            raise SystemExit(
+                "Need at least 2 stored plays to train. "
+                "Import history or sync recently-played first."
+            )
+        data = build_training_data(plays)
 
-    if len(plays) < 2:
-        raise SystemExit(
-            "Need at least 2 stored plays to train. "
-            "Run the server, authorize, and sync plays first."
+    summaries: list[dict] = []
+
+    for model_id in model_ids:
+        predictor = create_predictor(model_id)
+        predictor.fit(data)
+        path = artifact_path(model_id)
+        predictor.save(path)
+        summaries.append(
+            {
+                "model_id": model_id,
+                "model_path": str(path),
+                "n_plays": getattr(predictor, "n_plays", data.n_plays),
+                "n_transitions": getattr(predictor, "n_transitions", None),
+                "trained_at": getattr(predictor, "trained_at", None),
+            }
         )
-
-    predictor = MarkovPredictor()
-    predictor.fit(transitions, n_plays=len(plays))
-    predictor.save(artifact)
-
-    summary = {
-        "model_path": str(artifact),
-        "n_plays": predictor.n_plays,
-        "n_transitions": predictor.n_transitions,
-        "trained_at": predictor.trained_at,
-    }
-    return summary
+    return summaries
 
 
 def main() -> None:
-    summary = train()
-    print(
-        f"Trained Markov predictor: "
-        f"{summary['n_transitions']} transitions from {summary['n_plays']} plays"
+    parser = argparse.ArgumentParser(description="Train next-song predictors")
+    parser.add_argument(
+        "--model",
+        default="all",
+        help=f"Model id or 'all' (available: {', '.join(list_model_ids())})",
     )
-    print(f"Wrote {summary['model_path']}")
+    args = parser.parse_args()
+
+    if args.model == "all":
+        model_ids = list_model_ids()
+    else:
+        if args.model not in list_model_ids():
+            raise SystemExit(
+                f"Unknown model {args.model!r}. Choose from {list_model_ids()} or 'all'."
+            )
+        model_ids = [args.model]
+
+    summaries = train_models(model_ids)
+    for summary in summaries:
+        extra = ""
+        if summary.get("n_transitions") is not None:
+            extra = f", {summary['n_transitions']} transitions"
+        print(
+            f"[{summary['model_id']}] n_plays={summary['n_plays']}{extra} "
+            f"-> {summary['model_path']}"
+        )
 
 
 if __name__ == "__main__":

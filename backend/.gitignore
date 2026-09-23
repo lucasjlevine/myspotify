@@ -4,4 +4,6 @@
 **/__pycache__/
 data/*.db
 data/models/*.json
+data/models/*.joblib
+data/models/*.meta.json
 data/Spotify Extended Streaming History/

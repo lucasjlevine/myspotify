@@ -4,7 +4,7 @@ Applies when editing `backend/`. Root [AGENTS.md](../AGENTS.md) + `.cursor/rules
 
 ## Purpose
 
-FastAPI app: Spotify OAuth, play upsert/polling, Extended History import, Markov next-song baseline.
+FastAPI: Spotify OAuth, play upsert/polling, Extended History import, multi-model next-song prediction.
 
 ## Commands
 
@@ -13,15 +13,16 @@ cd backend
 uv sync
 uv run main.py
 uv run python -m app.import_history
-uv run python -m app.ml.train
+uv run python -m app.ml.train            # all
+uv run python -m app.ml.train --model markov
 ```
 
 ## Layout
 
-- `main.py` — thin entry only
+- `main.py` — thin entry
 - `app/routers/` — HTTP
-- `app/spotify/` — OAuth, recently-played sync, export parse
-- `app/ml/` — `NextSongPredictor` protocol + Markov; train CLI / predict service
+- `app/spotify/` — OAuth, sync, export parse
+- `app/ml/` — `NextSongPredictor` + registry (`markov`, `popularity`, `artist`, `cooccurrence`, `item_knn`)
 - `app/models.py` + `app/repositories.py` — SQLAlchemy
 
 ## Rules
@@ -30,13 +31,14 @@ uv run python -m app.ml.train
 - Never return tokens in API responses
 - Deps: `uv add` / `uv sync`
 - Upsert key `(played_at, track_id)`
-- New models implement `app/ml/protocol.py`; artifact `data/models/markov.json`
-- Redirect URI: loopback `127.0.0.1`, not `localhost`
+- New models: implement protocol, register in `app/ml/registry.py`
+- Artifacts: `data/models/{id}.json` or `item_knn.joblib` (+ `.meta.json`)
+- Redirect URI: `127.0.0.1`, not `localhost`
 
 ## Do not commit
 
-`.env`, `data/*.db`, `data/models/*.json`, `data/Spotify Extended Streaming History/`
+`.env`, `data/*.db`, `data/models/*` artifacts, privacy-export JSON
 
 ## Out of scope unless asked
 
-Frontend, neural models, force-push / rewriting git history
+Frontend, neural nets, force-push / history rewrite
