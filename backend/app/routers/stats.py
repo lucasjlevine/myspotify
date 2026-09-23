@@ -16,15 +16,38 @@ def summary():
 
 
 @router.get("/stats/top-tracks")
-def get_top_tracks(limit: int = Query(default=10, ge=1, le=100)):
+def get_top_tracks(
+    limit: int = Query(default=10, ge=1, le=100),
+    time_range: str = Query(
+        default="long_term",
+        pattern="^(short_term|medium_term|long_term)$",
+    ),
+):
+    """Top tracks with Spotify-like windows and daily play caps (anti sleep-loop)."""
     with session_scope() as session:
-        return {"tracks": repositories.top_tracks(session, limit=limit)}
+        return {
+            "time_range": time_range,
+            "tracks": repositories.top_tracks(
+                session, limit=limit, time_range=time_range
+            ),
+        }
 
 
 @router.get("/stats/top-artists")
-def get_top_artists(limit: int = Query(default=10, ge=1, le=100)):
+def get_top_artists(
+    limit: int = Query(default=10, ge=1, le=100),
+    time_range: str = Query(
+        default="long_term",
+        pattern="^(short_term|medium_term|long_term)$",
+    ),
+):
     with session_scope() as session:
-        return {"artists": repositories.top_artists(session, limit=limit)}
+        return {
+            "time_range": time_range,
+            "artists": repositories.top_artists(
+                session, limit=limit, time_range=time_range
+            ),
+        }
 
 
 @router.get("/stats/listening-by-hour")
@@ -58,6 +81,33 @@ def get_listening_by_day(
 def get_image_coverage():
     with session_scope() as session:
         return repositories.image_coverage(session)
+
+
+@router.get("/tracks/meta-coverage")
+def get_meta_coverage():
+    with session_scope() as session:
+        return repositories.meta_coverage(session)
+
+
+@router.post("/tracks/enrich-features")
+def enrich_track_features(
+    batches: int = Query(default=5, ge=1, le=50),
+    limit: int = Query(default=40, ge=1, le=50),
+):
+    """Enrich genres (Spotify artists) + audio features (ReccoBeats)."""
+    from app.enrich_features import enrich_batch
+
+    total = 0
+    for _ in range(batches):
+        with session_scope() as session:
+            missing = repositories.track_ids_missing_meta(session, limit=limit)
+        if not missing:
+            break
+        total += enrich_batch(missing)
+
+    with session_scope() as session:
+        coverage = repositories.meta_coverage(session)
+    return {"enriched": total, **coverage}
 
 
 class EnrichImagesBody(BaseModel):

@@ -5,7 +5,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.models import Play, Token
+from app.listening import (
+    DEFAULT_DAILY_CAP,
+    TIME_RANGE_DAYS,
+    effective_artist_scores,
+    effective_track_scores,
+    parse_played_at,
+)
+from app.models import Play, Token, TrackMeta
 
 UPSERT_BATCH_SIZE = 1000
 
@@ -227,73 +234,228 @@ def stats_summary(session: Session) -> dict:
     }
 
 
-def top_tracks(session: Session, limit: int = 10) -> list[dict]:
-    rows = session.execute(
+def top_tracks(
+    session: Session,
+    limit: int = 10,
+    *,
+    time_range: str = "long_term",
+    daily_cap: int = DEFAULT_DAILY_CAP,
+) -> list[dict]:
+    if time_range not in TIME_RANGE_DAYS:
+        time_range = "long_term"
+
+    scores = effective_track_scores(
+        session, time_range=time_range, daily_cap=daily_cap
+    )
+    if not scores:
+        return []
+
+    ranked_ids = sorted(scores.keys(), key=lambda t: scores[t], reverse=True)[
+        :limit
+    ]
+
+    # Latest metadata per track
+    meta_rows = session.execute(
         select(
             Play.track_id,
             Play.track_name,
             Play.artist_names,
             Play.album_name,
-            func.count().label("play_count"),
             func.max(Play.album_image_url).label("album_image_url"),
             func.sum(Play.duration_ms).label("total_ms"),
             func.max(Play.played_at).label("last_played_at"),
+            func.count().label("raw_play_count"),
         )
+        .where(Play.track_id.in_(ranked_ids))
         .group_by(Play.track_id)
-        .order_by(func.count().desc())
-        .limit(limit)
     ).all()
-    return [
-        {
-            "track_id": row.track_id,
-            "track_name": row.track_name,
-            "artist_names": row.artist_names,
-            "album_name": row.album_name,
-            "play_count": int(row.play_count),
-            "album_image_url": row.album_image_url,
-            "total_ms": int(row.total_ms or 0),
-            "last_played_at": row.last_played_at,
-        }
-        for row in rows
-    ]
+    by_id = {row.track_id: row for row in meta_rows}
+
+    results: list[dict] = []
+    for tid in ranked_ids:
+        row = by_id.get(tid)
+        if row is None:
+            continue
+        results.append(
+            {
+                "track_id": tid,
+                "track_name": row.track_name,
+                "artist_names": row.artist_names,
+                "album_name": row.album_name,
+                "play_count": int(scores[tid]),
+                "raw_play_count": int(row.raw_play_count),
+                "album_image_url": row.album_image_url,
+                "total_ms": int(row.total_ms or 0),
+                "last_played_at": row.last_played_at,
+                "time_range": time_range,
+                "daily_cap": daily_cap,
+            }
+        )
+    return results
 
 
-def top_artists(session: Session, limit: int = 10) -> list[dict]:
-    rows = session.execute(
+def top_artists(
+    session: Session,
+    limit: int = 10,
+    *,
+    time_range: str = "long_term",
+    daily_cap: int = DEFAULT_DAILY_CAP,
+) -> list[dict]:
+    if time_range not in TIME_RANGE_DAYS:
+        time_range = "long_term"
+
+    scores = effective_artist_scores(
+        session, time_range=time_range, daily_cap=daily_cap
+    )
+    if not scores:
+        return []
+
+    ranked = sorted(scores.keys(), key=lambda a: scores[a], reverse=True)[:limit]
+    meta_rows = session.execute(
         select(
             Play.artist_names,
-            func.count().label("play_count"),
             func.count(func.distinct(Play.track_id)).label("unique_tracks"),
             func.sum(Play.duration_ms).label("total_ms"),
             func.max(Play.played_at).label("last_played_at"),
             func.max(Play.album_image_url).label("album_image_url"),
+            func.count().label("raw_play_count"),
         )
+        .where(Play.artist_names.in_(ranked))
         .group_by(Play.artist_names)
-        .order_by(func.count().desc())
-        .limit(limit)
     ).all()
-    return [
-        {
-            "artist_names": row.artist_names,
-            "play_count": int(row.play_count),
-            "unique_tracks": int(row.unique_tracks),
-            "total_ms": int(row.total_ms or 0),
-            "last_played_at": row.last_played_at,
-            "album_image_url": row.album_image_url,
-        }
-        for row in rows
+    by_name = {row.artist_names: row for row in meta_rows}
+
+    results: list[dict] = []
+    for name in ranked:
+        row = by_name.get(name)
+        if row is None:
+            continue
+        results.append(
+            {
+                "artist_names": name,
+                "play_count": int(scores[name]),
+                "raw_play_count": int(row.raw_play_count),
+                "unique_tracks": int(row.unique_tracks),
+                "total_ms": int(row.total_ms or 0),
+                "last_played_at": row.last_played_at,
+                "album_image_url": row.album_image_url,
+                "time_range": time_range,
+                "daily_cap": daily_cap,
+            }
+        )
+    return results
+
+
+def upsert_track_meta(session: Session, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    written = 0
+    for row in rows:
+        existing = session.get(TrackMeta, row["track_id"])
+        if existing is None:
+            session.add(TrackMeta(**row))
+        else:
+            for key, value in row.items():
+                if key == "track_id":
+                    continue
+                if value is not None:
+                    setattr(existing, key, value)
+        written += 1
+    return written
+
+
+def track_ids_missing_meta(
+    session: Session,
+    limit: int = 100,
+    *,
+    retry_after_minutes: int = 45,
+) -> list[str]:
+    """Most-played tracks lacking audio features.
+
+    Prefer never-seen tracks, then feature-less rows whose last enrich
+    attempt is older than ``retry_after_minutes`` (avoids hot-looping the
+    same ids when ReccoBeats is down).
+    """
+    have_features = {
+        r[0]
+        for r in session.execute(
+            select(TrackMeta.track_id).where(TrackMeta.energy.isnot(None))
+        ).all()
+    }
+    meta_rows = session.execute(
+        select(TrackMeta.track_id, TrackMeta.enriched_at)
+    ).all()
+    have_meta = {tid for tid, _ in meta_rows}
+    cooldown_cutoff = (
+        datetime.now(timezone.utc) - timedelta(minutes=retry_after_minutes)
+    ).isoformat()
+    recently_attempted = {
+        tid
+        for tid, enriched_at in meta_rows
+        if tid not in have_features
+        and enriched_at
+        and enriched_at >= cooldown_cutoff
+    }
+
+    ranked = session.execute(
+        select(Play.track_id, func.count().label("n"))
+        .group_by(Play.track_id)
+        .order_by(func.count().desc())
+    ).all()
+
+    never_seen = [tid for tid, _ in ranked if tid not in have_meta]
+    if never_seen:
+        return never_seen[:limit]
+
+    missing_features = [
+        tid
+        for tid, _ in ranked
+        if tid not in have_features and tid not in recently_attempted
     ]
+    return missing_features[:limit]
+
+
+def get_track_meta_map(
+    session: Session, track_ids: list[str]
+) -> dict[str, TrackMeta]:
+    if not track_ids:
+        return {}
+    rows = session.scalars(
+        select(TrackMeta).where(TrackMeta.track_id.in_(track_ids))
+    ).all()
+    return {row.track_id: row for row in rows}
+
+
+def meta_coverage(session: Session) -> dict:
+    total = int(
+        session.scalar(select(func.count(func.distinct(Play.track_id)))) or 0
+    )
+    with_meta = int(session.scalar(select(func.count()).select_from(TrackMeta)) or 0)
+    with_features = int(
+        session.scalar(
+            select(func.count()).select_from(TrackMeta).where(TrackMeta.energy.isnot(None))
+        )
+        or 0
+    )
+    with_genres = int(
+        session.scalar(
+            select(func.count())
+            .select_from(TrackMeta)
+            .where(TrackMeta.genres.isnot(None), TrackMeta.genres != "")
+        )
+        or 0
+    )
+    return {
+        "unique_tracks": total,
+        "with_meta": with_meta,
+        "with_features": with_features,
+        "with_genres": with_genres,
+        "missing_features": max(0, total - with_features),
+    }
 
 
 def _parse_played_at(value: str) -> datetime | None:
-    try:
-        text = value.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(text)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except ValueError:
-        return None
+    return parse_played_at(value)
 
 
 def listening_by_hour(

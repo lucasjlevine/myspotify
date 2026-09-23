@@ -4,6 +4,10 @@ import { useEffect, useState, useTransition } from "react";
 import { AlbumArt } from "@/components/album-art";
 import { EnrichArtButton } from "@/components/enrich-art-button";
 import {
+  TimeRangeToggle,
+  type TimeRange,
+} from "@/components/time-range-toggle";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -23,15 +27,16 @@ import { formatDuration, formatPlayedAt } from "@/lib/format";
 
 export default function TopArtistsPage() {
   const [limit, setLimit] = useState("50");
+  const [timeRange, setTimeRange] = useState<TimeRange>("medium_term");
   const [artists, setArtists] = useState<TopArtist[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [, startTransition] = useTransition();
 
-  function load(nextLimit = limit) {
+  function load(nextLimit = limit, nextRange = timeRange) {
     startTransition(async () => {
       try {
-        const res = await getTopArtists(Number(nextLimit));
+        const res = await getTopArtists(Number(nextLimit), nextRange);
         setArtists(res.artists);
         setError(null);
       } catch (err) {
@@ -43,9 +48,10 @@ export default function TopArtistsPage() {
   }
 
   useEffect(() => {
+    setLoading(true);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [timeRange]);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8 animate-fade-up">
@@ -55,18 +61,20 @@ export default function TopArtistsPage() {
           <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
             Top artists
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Ranked by total plays — cover art from a track in that set.
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+            Same windows and daily caps as top tracks — overnight repeats do not
+            inflate the ranking.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
           <Select
             value={limit}
             onValueChange={(v) => {
               if (!v) return;
               setLimit(v);
               setLoading(true);
-              load(v);
+              load(v, timeRange);
             }}
           >
             <SelectTrigger className="w-28">
@@ -93,7 +101,7 @@ export default function TopArtistsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Leaderboard</CardTitle>
-          <CardDescription>plays · unique tracks · listen time</CardDescription>
+          <CardDescription>affinity score · unique tracks · listen time</CardDescription>
         </CardHeader>
         <CardContent className="space-y-0 divide-y divide-border">
           {loading
@@ -117,7 +125,13 @@ export default function TopArtistsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{a.artist_names}</p>
                     <p className="font-mono text-[10px] text-muted-foreground">
-                      {a.play_count} plays · {a.unique_tracks} tracks
+                      score {a.play_count}
+                      {a.raw_play_count != null &&
+                      a.raw_play_count !== a.play_count
+                        ? ` · raw ${a.raw_play_count}`
+                        : ""}
+                      {" · "}
+                      {a.unique_tracks} tracks
                       {a.total_ms != null
                         ? ` · ${formatDuration(a.total_ms)}`
                         : ""}

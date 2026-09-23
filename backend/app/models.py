@@ -26,3 +26,23 @@ class Play(Base):
     context_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     collected_at: Mapped[str] = mapped_column(Text, nullable=False)
     album_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TrackMeta(Base):
+    """Per-track catalog enrichment (genres + audio features)."""
+
+    __tablename__ = "track_meta"
+
+    track_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artist_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    genres: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acousticness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    energy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    instrumentalness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    liveness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    loudness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speechiness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tempo: Mapped[float | None] = mapped_column(Float, nullable=True)
+    valence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    enriched_at: Mapped[str] = mapped_column(Text, nullable=False)

@@ -5,12 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 
-from app.ml.dataset import play_counts
+from app.listening import capped_play_counts_for_training
 from app.ml.protocol import PredictContext, Prediction, TrainingData
 
 
 class PopularityPredictor:
-    """Globally most-played tracks (excludes the seed track)."""
+    """Most-played tracks using daily-capped counts (resists sleep loops)."""
 
     model_id = "popularity"
 
@@ -20,16 +20,18 @@ class PopularityPredictor:
         self.n_plays: int = 0
 
     def fit(self, data: TrainingData) -> None:
-        self.counts = play_counts(data.track_ids)
-        self.n_plays = data.n_plays
+        capped = capped_play_counts_for_training(data.track_ids, data.played_ats)
+        self.counts = Counter({k: int(v) for k, v in capped.items()})
+        self.n_plays = int(sum(self.counts.values()))
         self.trained_at = datetime.now(timezone.utc).isoformat()
 
     def predict(self, context: PredictContext, k: int = 5) -> list[Prediction]:
         total = sum(self.counts.values()) or 1
+        exclude = set(context.recent_track_ids) | {context.track_id}
         ranked = [
             (track_id, count / total)
-            for track_id, count in self.counts.most_common(k + 1)
-            if track_id != context.track_id
+            for track_id, count in self.counts.most_common(k + len(exclude) + 5)
+            if track_id not in exclude
         ]
         return ranked[:k]
 
@@ -42,6 +44,7 @@ class PopularityPredictor:
                     "trained_at": self.trained_at,
                     "n_plays": self.n_plays,
                     "counts": dict(self.counts),
+                    "scoring": "daily_cap_3",
                 },
                 indent=2,
             ),

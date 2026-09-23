@@ -100,18 +100,24 @@ export type TopTrack = {
   artist_names: string;
   album_name: string;
   play_count: number;
+  raw_play_count?: number;
   album_image_url?: string | null;
   total_ms?: number;
   last_played_at?: string | null;
+  time_range?: string;
+  daily_cap?: number;
 };
 
 export type TopArtist = {
   artist_names: string;
   play_count: number;
+  raw_play_count?: number;
   unique_tracks: number;
   total_ms?: number;
   last_played_at?: string | null;
   album_image_url?: string | null;
+  time_range?: string;
+  daily_cap?: number;
 };
 
 export type HourBucket = { hour: number; play_count: number };

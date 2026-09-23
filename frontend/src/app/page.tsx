@@ -29,6 +29,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { AlbumArt } from "@/components/album-art";
 import {
+  TimeRangeToggle,
+  type TimeRange,
+} from "@/components/time-range-toggle";
+import {
   getListeningByDay,
   getListeningByHour,
   getStatsSummary,
@@ -62,27 +66,25 @@ export default function OverviewPage() {
   const [days, setDays] = useState<DayBucket[]>([]);
   const [tracks, setTracks] = useState<TopTrack[]>([]);
   const [artists, setArtists] = useState<TopArtist[]>([]);
+  const [timeRange, setTimeRange] = useState<TimeRange>("medium_term");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [topsLoading, setTopsLoading] = useState(true);
   const tzName = localTimeZoneName();
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [s, h, d, t, a] = await Promise.all([
+        const [s, h, d] = await Promise.all([
           getStatsSummary(),
           getListeningByHour(),
           getListeningByDay(30),
-          getTopTracks(5),
-          getTopArtists(5),
         ]);
         if (cancelled) return;
         setSummary(s);
         setHours(h.hours);
         setDays(d.days);
-        setTracks(t.tracks);
-        setArtists(a.artists);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load stats");
@@ -95,6 +97,31 @@ export default function OverviewPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTopsLoading(true);
+    (async () => {
+      try {
+        const [t, a] = await Promise.all([
+          getTopTracks(5, timeRange),
+          getTopArtists(5, timeRange),
+        ]);
+        if (cancelled) return;
+        setTracks(t.tracks);
+        setArtists(a.artists);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load tops");
+        }
+      } finally {
+        if (!cancelled) setTopsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [timeRange]);
 
   const hourData = hours.map((h) => ({
     ...h,
@@ -255,6 +282,16 @@ export default function OverviewPage() {
         </Card>
       </div>
 
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <CardTitle className="font-heading text-xl">Favorites</CardTitle>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            capped affinity · switch window
+          </p>
+        </div>
+        <TimeRangeToggle value={timeRange} onChange={setTimeRange} />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex-row items-start justify-between gap-2">
@@ -273,16 +310,16 @@ export default function OverviewPage() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            {loading
+            {topsLoading
               ? Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+                  <Skeleton key={i} className="h-14 w-full" />
                 ))
               : tracks.map((t, i) => (
                   <div
                     key={t.track_id}
-                    className="flex items-center gap-3 rounded-2xl px-2 py-1.5"
+                    className="flex items-center gap-3 rounded-none px-2 py-1.5"
                   >
-                    <span className="w-5 text-sm tabular-nums text-muted-foreground">
+                    <span className="w-5 font-mono text-xs tabular-nums text-muted-foreground">
                       {i + 1}
                     </span>
                     <AlbumArt
@@ -296,7 +333,7 @@ export default function OverviewPage() {
                         {t.artist_names}
                       </p>
                     </div>
-                    <span className="text-xs tabular-nums text-muted-foreground">
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">
                       {t.play_count}
                     </span>
                   </div>
@@ -321,16 +358,16 @@ export default function OverviewPage() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            {loading
+            {topsLoading
               ? Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+                  <Skeleton key={i} className="h-14 w-full" />
                 ))
               : artists.map((a, i) => (
                   <div
                     key={a.artist_names}
-                    className="flex items-center gap-3 rounded-2xl px-2 py-1.5"
+                    className="flex items-center gap-3 px-2 py-1.5"
                   >
-                    <span className="w-5 text-sm tabular-nums text-muted-foreground">
+                    <span className="w-5 font-mono text-xs tabular-nums text-muted-foreground">
                       {i + 1}
                     </span>
                     <AlbumArt
@@ -341,7 +378,7 @@ export default function OverviewPage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{a.artist_names}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {a.unique_tracks} tracks · {a.play_count} plays
+                        {a.unique_tracks} tracks · score {a.play_count}
                       </p>
                     </div>
                   </div>

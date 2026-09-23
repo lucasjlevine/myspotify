@@ -5,6 +5,10 @@ import Link from "next/link";
 import { ExternalLink, Sparkles } from "lucide-react";
 import { AlbumArt } from "@/components/album-art";
 import { EnrichArtButton } from "@/components/enrich-art-button";
+import {
+  TimeRangeToggle,
+  type TimeRange,
+} from "@/components/time-range-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,15 +34,16 @@ import {
 
 export default function TopTracksPage() {
   const [limit, setLimit] = useState("50");
+  const [timeRange, setTimeRange] = useState<TimeRange>("medium_term");
   const [tracks, setTracks] = useState<TopTrack[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [, startTransition] = useTransition();
 
-  function load(nextLimit = limit) {
+  function load(nextLimit = limit, nextRange = timeRange) {
     startTransition(async () => {
       try {
-        const res = await getTopTracks(Number(nextLimit));
+        const res = await getTopTracks(Number(nextLimit), nextRange);
         setTracks(res.tracks);
         setError(null);
       } catch (err) {
@@ -50,9 +55,10 @@ export default function TopTracksPage() {
   }
 
   useEffect(() => {
+    setLoading(true);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [timeRange]);
 
   const missingIds = tracks
     .filter((t) => !t.album_image_url)
@@ -66,19 +72,26 @@ export default function TopTracksPage() {
           <h1 className="font-heading mt-1 text-4xl font-medium tracking-tight sm:text-5xl">
             Top tracks
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Ranked by play count. Fetch art pulls most-played missing covers first
-            (~50/request × batches).
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+            Affinity score caps repeats at 3 plays/day so overnight loops do not
+            dominate. Switch the window like Spotify&apos;s short / medium / long
+            term.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <TimeRangeToggle
+            value={timeRange}
+            onChange={(v) => {
+              setTimeRange(v);
+            }}
+          />
           <Select
             value={limit}
             onValueChange={(v) => {
               if (!v) return;
               setLimit(v);
               setLoading(true);
-              load(v);
+              load(v, timeRange);
             }}
           >
             <SelectTrigger className="w-28">
@@ -110,7 +123,7 @@ export default function TopTracksPage() {
         <CardHeader>
           <CardTitle>Leaderboard</CardTitle>
           <CardDescription>
-            open in spotify · seed predict from a row
+            affinity (capped) · raw plays shown when different
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-0 divide-y divide-border">
@@ -135,7 +148,11 @@ export default function TopTracksPage() {
                       {t.album_name ? ` · ${t.album_name}` : ""}
                     </p>
                     <p className="font-mono text-[10px] text-muted-foreground">
-                      {t.play_count} plays
+                      score {t.play_count}
+                      {t.raw_play_count != null &&
+                      t.raw_play_count !== t.play_count
+                        ? ` · raw ${t.raw_play_count}`
+                        : ""}
                       {t.total_ms != null ? ` · ${formatDuration(t.total_ms)}` : ""}
                       {t.last_played_at
                         ? ` · last ${formatPlayedAt(t.last_played_at)}`

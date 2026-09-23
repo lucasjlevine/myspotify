@@ -1,11 +1,10 @@
-"""Local embedding song-space (fastembed ONNX).
+"""Local hybrid embedding song-space (text + audio features).
 
-Builds a vector for each unique track from metadata text, then:
-- nearest neighbors for listening-window seeds
-- free-text prompt search ("Rainy fall day") in the same space
+Text: track/artist/album + genres + mood phrases derived from audio features.
+Audio: 9-d feature vector concatenated onto the text embedding, then L2-normalized.
 
-Expandable later: richer docs (genres, lyrics snippets), Faiss/HNSW index,
-or swap the embedder for a larger local model.
+Free-text prompts ("Rainy fall day") hit the text subspace (padded with neutral
+audio features) so moods land near tracks tagged with matching descriptors.
 """
 
 from __future__ import annotations
@@ -20,21 +19,21 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 from app.config import DATA_DIR
+from app.database import session_scope
+from app import repositories
 from app.ml.protocol import PredictContext, Prediction, TrainingData
+from app.spotify.catalog import (
+    AUDIO_KEYS,
+    audio_feature_vector,
+    build_track_document,
+)
 
 DEFAULT_EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 _BATCH = 64
-
-
-def track_document(name: str, artist: str, album: str) -> str:
-    """Compact text we embed per track — keep in sync with prompt phrasing."""
-    parts = [
-        (name or "").strip(),
-        (artist or "").strip(),
-        (album or "").strip(),
-    ]
-    # Light mood-ish cues from titles/albums help phrase queries land nearby
-    return " — ".join(p for p in parts if p)
+# Relative weight of the audio block vs text (after each is unit-length)
+AUDIO_WEIGHT = 0.35
+# Prompt search uses text subspace so mood phrases aren't diluted by neutral audio
+PROMPT_TEXT_ONLY = True
 
 
 def _get_embedder(model_name: str = DEFAULT_EMBED_MODEL):
@@ -51,11 +50,38 @@ def _embed_texts(embedder, texts: list[str]) -> np.ndarray:
     return normalize(matrix, norm="l2", axis=1)
 
 
+def _hybridize(text_matrix: np.ndarray, audio_matrix: np.ndarray) -> np.ndarray:
+    """Concatenate L2 text with scaled audio features, then re-normalize."""
+    if text_matrix.size == 0:
+        return text_matrix
+    audio_n = normalize(audio_matrix.astype(np.float32), norm="l2", axis=1)
+    scaled = audio_n * AUDIO_WEIGHT
+    combined = np.concatenate([text_matrix, scaled], axis=1)
+    return normalize(combined, norm="l2", axis=1)
+
+
+def _meta_features_map(track_ids: list[str]) -> dict[str, dict]:
+    with session_scope() as session:
+        metas = repositories.get_track_meta_map(session, track_ids)
+        out: dict[str, dict] = {}
+        for tid, meta in metas.items():
+            feats = {
+                key: getattr(meta, key)
+                for key in AUDIO_KEYS
+                if getattr(meta, key, None) is not None
+            }
+            out[tid] = {
+                "genres": meta.genres,
+                "features": feats if feats else None,
+            }
+        return out
+
+
 class EmbeddingPredictor:
-    """Dense song-space with cosine nearest neighbors + text prompt search."""
+    """Hybrid song-space with cosine NN + text prompt search."""
 
     model_id = "embedding"
-    backend = "fastembed"
+    backend = "fastembed+audio"
 
     def __init__(self, *, model_name: str = DEFAULT_EMBED_MODEL) -> None:
         self.model_name = model_name
@@ -63,11 +89,13 @@ class EmbeddingPredictor:
         self.track_index: dict[str, int] = {}
         self.matrix: np.ndarray | None = None
         self.documents: list[str] = []
+        self.audio_matrix: np.ndarray | None = None
         self.nn: NearestNeighbors | None = None
         self.trained_at: str | None = None
         self.n_plays: int = 0
         self.n_tracks: int = 0
         self.dim: int = 0
+        self.text_dim: int = 0
         self._embedder = None
 
     def _ensure_embedder(self):
@@ -85,9 +113,25 @@ class EmbeddingPredictor:
         )
         self.nn.fit(self.matrix)
 
+    def _prompt_vector(self, text: str) -> np.ndarray:
+        embedder = self._ensure_embedder()
+        text_vec = _embed_texts(embedder, [text])
+        if text_vec.shape[0] == 0:
+            return np.zeros((0,), dtype=np.float32)
+        if PROMPT_TEXT_ONLY and self.matrix is not None and self.text_dim > 0:
+            # Match against text dims only; zero audio so genres/moods dominate
+            audio_dims = max(0, self.matrix.shape[1] - self.text_dim)
+            pad = np.zeros((1, audio_dims), dtype=np.float32)
+            combined = np.concatenate([text_vec, pad], axis=1)
+            return normalize(combined, norm="l2", axis=1)[0]
+        audio = np.asarray([audio_feature_vector(None)], dtype=np.float32)
+        hybrid = _hybridize(text_vec, audio)
+        return hybrid[0]
+
     def fit(self, data: TrainingData) -> None:
-        docs: dict[str, str] = {}
         names = data.track_names or [""] * len(data.track_ids)
+        # Last-seen metadata per track
+        meta_text: dict[str, tuple[str, str, str]] = {}
         for tid, artist, album, name in zip(
             data.track_ids,
             data.artist_names,
@@ -95,24 +139,44 @@ class EmbeddingPredictor:
             names,
             strict=False,
         ):
-            docs[tid] = track_document(name, artist, album)
+            meta_text[tid] = (name or "", artist or "", album or "")
 
-        self.index_track = sorted(docs.keys())
+        self.index_track = sorted(meta_text.keys())
         self.track_index = {t: i for i, t in enumerate(self.index_track)}
-        self.documents = [docs[t] for t in self.index_track]
+        catalog = _meta_features_map(self.index_track)
+
+        self.documents = []
+        audio_rows: list[list[float]] = []
+        for tid in self.index_track:
+            name, artist, album = meta_text[tid]
+            info = catalog.get(tid) or {}
+            doc = build_track_document(
+                name=name,
+                artist=artist,
+                album=album,
+                genres=info.get("genres"),
+                features=info.get("features"),
+            )
+            self.documents.append(doc)
+            audio_rows.append(audio_feature_vector(info.get("features")))
+
         self.n_plays = data.n_plays
         self.n_tracks = len(self.index_track)
 
         if not self.documents:
             self.matrix = np.zeros((0, 0), dtype=np.float32)
+            self.audio_matrix = np.zeros((0, 9), dtype=np.float32)
             self.nn = None
             self.dim = 0
             self.trained_at = datetime.now(timezone.utc).isoformat()
             return
 
         embedder = self._ensure_embedder()
-        self.matrix = _embed_texts(embedder, self.documents)
-        self.dim = int(self.matrix.shape[1]) if self.matrix.size else 0
+        text_matrix = _embed_texts(embedder, self.documents)
+        self.text_dim = int(text_matrix.shape[1])
+        self.audio_matrix = np.asarray(audio_rows, dtype=np.float32)
+        self.matrix = _hybridize(text_matrix, self.audio_matrix)
+        self.dim = int(self.matrix.shape[1])
         self._fit_nn()
         self.trained_at = datetime.now(timezone.utc).isoformat()
 
@@ -134,61 +198,66 @@ class EmbeddingPredictor:
         n = min(max(k + len(exclude) + 5, k), self.matrix.shape[0])
         distances, indices = self.nn.kneighbors(query.reshape(1, -1), n_neighbors=n)
         ranked: list[Prediction] = []
+        seen: set[str] = set()
         for dist, idx in zip(distances[0], indices[0], strict=False):
             tid = self.index_track[int(idx)]
-            if tid in exclude:
+            if tid in exclude or tid in seen:
                 continue
-            # cosine distance → similarity
-            score = float(1.0 - dist)
-            ranked.append((tid, score))
+            seen.add(tid)
+            ranked.append((tid, float(1.0 - dist)))
             if len(ranked) >= k:
                 break
         return ranked
 
     def search_text(self, prompt: str, k: int = 10) -> list[Prediction]:
-        """Embed a free-text mood/phrase and return nearest tracks."""
         text = (prompt or "").strip()
         if not text:
             return []
-        embedder = self._ensure_embedder()
-        query = _embed_texts(embedder, [text])
-        if query.shape[0] == 0:
+        query = self._prompt_vector(text)
+        if query.size == 0:
             return []
-        return self._query_neighbors(query[0], k, exclude=set())
+        # Over-fetch then prefer tracks annotated with genres/moods
+        pool = self._query_neighbors(query, max(k * 6, 30), exclude=set())
+        if not pool:
+            return []
+        rescored: list[Prediction] = []
+        for tid, score in pool:
+            idx = self.track_index.get(tid)
+            doc = self.documents[idx] if idx is not None else ""
+            adj = float(score)
+            if "Mood:" in doc:
+                adj += 0.14
+            if "Genres:" in doc:
+                adj += 0.08
+            if "Mood:" not in doc and "Genres:" not in doc:
+                adj -= 0.06
+            rescored.append((tid, adj))
+        rescored.sort(key=lambda x: x[1], reverse=True)
+        return rescored[:k]
 
     def predict(self, context: PredictContext, k: int = 5) -> list[Prediction]:
         exclude = set(context.recent_track_ids) | {context.track_id}
         vectors: list[np.ndarray] = []
 
-        # Prefer vectors already in the catalog for seed tracks
         for tid in context.recent_track_ids or (context.track_id,):
             idx = self.track_index.get(tid)
             if idx is not None and self.matrix is not None:
                 vectors.append(self.matrix[idx])
 
-        # Fall back / blend with seed text docs
         if not vectors and context.recent_texts:
-            embedder = self._ensure_embedder()
-            texts = [t for t in context.recent_texts if t.strip()]
-            if texts:
-                embedded = _embed_texts(embedder, texts)
-                vectors.extend(list(embedded))
-
-        if not vectors and (context.artist_names or context.album_name):
-            embedder = self._ensure_embedder()
-            doc = track_document("", context.artist_names, context.album_name)
-            embedded = _embed_texts(embedder, [doc])
-            if embedded.shape[0]:
-                vectors.append(embedded[0])
+            for text in context.recent_texts:
+                if text.strip():
+                    vectors.append(self._prompt_vector(text))
 
         if not vectors:
             return []
 
-        # Recency-weighted mean in embedding space
         stacked = np.stack(vectors, axis=0)
         weights = np.linspace(0.5, 1.0, num=stacked.shape[0], dtype=np.float32)
         weights = weights / weights.sum()
-        query = normalize((stacked * weights[:, None]).sum(axis=0, keepdims=True), norm="l2")[0]
+        query = normalize(
+            (stacked * weights[:, None]).sum(axis=0, keepdims=True), norm="l2"
+        )[0]
         return self._query_neighbors(query, k, exclude=exclude)
 
     def save(self, path: Path) -> None:
@@ -200,11 +269,14 @@ class EmbeddingPredictor:
                 "model_name": self.model_name,
                 "index_track": self.index_track,
                 "matrix": self.matrix,
+                "audio_matrix": self.audio_matrix,
                 "documents": self.documents,
                 "trained_at": self.trained_at,
                 "n_plays": self.n_plays,
                 "n_tracks": self.n_tracks,
                 "dim": self.dim,
+                "text_dim": self.text_dim,
+                "audio_weight": AUDIO_WEIGHT,
             },
             path,
         )
@@ -216,6 +288,7 @@ class EmbeddingPredictor:
             "n_plays": self.n_plays,
             "n_tracks": self.n_tracks,
             "dim": self.dim,
+            "text_dim": self.text_dim,
         }
         (DATA_DIR / "models" / f"{self.model_id}.meta.json").write_text(
             json.dumps(meta, indent=2), encoding="utf-8"
@@ -228,10 +301,19 @@ class EmbeddingPredictor:
         obj.index_track = payload.get("index_track") or []
         obj.track_index = {t: i for i, t in enumerate(obj.index_track)}
         obj.matrix = payload.get("matrix")
+        obj.audio_matrix = payload.get("audio_matrix")
         obj.documents = payload.get("documents") or []
         obj.trained_at = payload.get("trained_at")
         obj.n_plays = int(payload.get("n_plays") or 0)
         obj.n_tracks = int(payload.get("n_tracks") or len(obj.index_track))
-        obj.dim = int(payload.get("dim") or (obj.matrix.shape[1] if obj.matrix is not None and obj.matrix.size else 0))
+        obj.dim = int(
+            payload.get("dim")
+            or (
+                obj.matrix.shape[1]
+                if obj.matrix is not None and obj.matrix.size
+                else 0
+            )
+        )
+        obj.text_dim = int(payload.get("text_dim") or 0)
         obj._fit_nn()
         return obj

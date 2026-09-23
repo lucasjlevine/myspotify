@@ -16,12 +16,31 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from app.config import DATA_DIR
+from app.database import session_scope
+from app import repositories
 from app.ml.protocol import PredictContext, Prediction, TrainingData
+from app.spotify.catalog import AUDIO_KEYS, build_track_document
 
 
 def track_document(artist: str, album: str, name: str = "") -> str:
-    parts = [artist or "", album or "", name or ""]
-    return " ".join(p.strip() for p in parts if p and p.strip()).lower()
+    return build_track_document(name=name, artist=artist, album=album).lower()
+
+
+def _enriched_docs(track_ids: list[str]) -> dict[str, dict]:
+    with session_scope() as session:
+        metas = repositories.get_track_meta_map(session, track_ids)
+        out: dict[str, dict] = {}
+        for tid, meta in metas.items():
+            feats = {
+                key: getattr(meta, key)
+                for key in AUDIO_KEYS
+                if getattr(meta, key, None) is not None
+            }
+            out[tid] = {
+                "genres": meta.genres,
+                "features": feats if feats else None,
+            }
+        return out
 
 
 def build_listening_prompt(texts: tuple[str, ...] | list[str]) -> str:
@@ -58,6 +77,7 @@ class PromptedPredictor:
         # One document per unique track (last-seen metadata wins).
         docs: dict[str, str] = {}
         names = data.track_names or [""] * len(data.track_ids)
+        meta_text: dict[str, tuple[str, str, str]] = {}
         for tid, artist, album, name in zip(
             data.track_ids,
             data.artist_names,
@@ -65,7 +85,18 @@ class PromptedPredictor:
             names,
             strict=False,
         ):
-            docs[tid] = track_document(artist, album, name)
+            meta_text[tid] = (name or "", artist or "", album or "")
+
+        catalog = _enriched_docs(list(meta_text.keys()))
+        for tid, (name, artist, album) in meta_text.items():
+            info = catalog.get(tid) or {}
+            docs[tid] = build_track_document(
+                name=name,
+                artist=artist,
+                album=album,
+                genres=info.get("genres"),
+                features=info.get("features"),
+            ).lower()
 
         self.index_track = sorted(docs.keys())
         self.track_index = {t: i for i, t in enumerate(self.index_track)}

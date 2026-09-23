@@ -6,4 +6,5 @@
 .env
 **/.env
 *.db
+*.db-*
 *.ses

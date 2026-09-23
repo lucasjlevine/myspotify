@@ -16,13 +16,21 @@ export function getStatsSummary() {
   return apiFetch<StatsSummary>("/stats/summary");
 }
 
-export function getTopTracks(limit = 10) {
-  return apiFetch<{ tracks: TopTrack[] }>(`/stats/top-tracks?limit=${limit}`);
+export function getTopTracks(
+  limit = 10,
+  timeRange: "short_term" | "medium_term" | "long_term" = "long_term",
+) {
+  return apiFetch<{ tracks: TopTrack[]; time_range: string }>(
+    `/stats/top-tracks?limit=${limit}&time_range=${timeRange}`,
+  );
 }
 
-export function getTopArtists(limit = 10) {
-  return apiFetch<{ artists: TopArtist[] }>(
-    `/stats/top-artists?limit=${limit}`,
+export function getTopArtists(
+  limit = 10,
+  timeRange: "short_term" | "medium_term" | "long_term" = "long_term",
+) {
+  return apiFetch<{ artists: TopArtist[]; time_range: string }>(
+    `/stats/top-artists?limit=${limit}&time_range=${timeRange}`,
   );
 }
 
@@ -77,4 +85,27 @@ export function enrichAlbumImages(opts?: {
       batches,
     }),
   });
+}
+
+export type MetaCoverage = {
+  unique_tracks: number;
+  with_meta: number;
+  with_features: number;
+  with_genres: number;
+  missing_features: number;
+};
+
+export function getMetaCoverage() {
+  return apiFetch<MetaCoverage>("/tracks/meta-coverage");
+}
+
+export function enrichTrackFeatures(opts?: { batches?: number; limit?: number }) {
+  const params = new URLSearchParams({
+    batches: String(opts?.batches ?? 5),
+    limit: String(opts?.limit ?? 40),
+  });
+  return apiFetch<{ enriched: number } & MetaCoverage>(
+    `/tracks/enrich-features?${params}`,
+    { method: "POST" },
+  );
 }
