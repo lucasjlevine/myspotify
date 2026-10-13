@@ -5,10 +5,11 @@ alwaysApply: true
 
 # Project
 
-Personal Spotify stack: `backend/` (FastAPI + play history + next-song ML) and `frontend/` (Next.js).
+Personal Spotify stack: `backend/` (FastAPI + play history + next-song ML), `frontend/` (Next.js), and `deploy/` (Silk / silk-sidecar).
 
 - Closest `AGENTS.md` wins (`backend/AGENTS.md`, `frontend/AGENTS.md`).
 - Never commit secrets, `.env`, SQLite DBs, trained models, or Spotify privacy-export data.
 - Prefer small focused modules; keep `backend/main.py` thin.
 - Run both from repo root: `npm run install:all` then `npm run dev`.
 - Run backend alone from `backend/`: `uv sync`, `uv run main.py`.
+- Silk: repo at `~/www-root/myspotify`, then `./deploy/setup-silk.sh` and `silk-sidecar deploy --config ./silk-sidecar.json`.

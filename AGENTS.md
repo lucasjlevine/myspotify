@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Monorepo: `backend/` (FastAPI) + `frontend/` (Next.js).
+Monorepo: `backend/` (FastAPI) + `frontend/` (Next.js) + `deploy/` (Silk).
 
 **Precedence:** nearest `AGENTS.md` to the edited file wins. See also `.cursor/rules/`.
 
@@ -24,6 +24,10 @@ uv run python -m app.enrich_images --batches 20
 
 # Frontend only
 cd frontend && npm install && npm run dev
+
+# Silk (repo at ~/www-root/myspotify)
+./deploy/setup-silk.sh
+silk-sidecar deploy --config ./silk-sidecar.json
 ```
 
 ## Git

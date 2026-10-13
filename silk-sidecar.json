@@ -1,0 +1,31 @@
+{
+  "name": "myspotify-api",
+  "netid": "YOUR_NETID",
+  "host": "YOUR_NETID.w3.uvm.edu",
+  "site_root": "~/www-root",
+  "backend": {
+    "port": 8000,
+    "workdir": "~/www-root/myspotify/backend",
+    "exec": "~/venvs/myspotify/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --proxy-headers",
+    "health_path": "/api/health",
+    "environment": {
+      "CORS_ORIGINS": "https://YOUR_NETID.w3.uvm.edu",
+      "FRONTEND_URL": "https://YOUR_NETID.w3.uvm.edu"
+    }
+  },
+  "frontend": {
+    "type": "nodejs",
+    "app_name": "web",
+    "root": "myspotify/deploy/dist/web",
+    "uri": "/*",
+    "startup_script": "server.js",
+    "node_version": "22",
+    "document_root": "public",
+    "proxy_prefix": "/api",
+    "project_root": "~/www-root/myspotify",
+    "build_cmd": "./deploy/build-web.sh",
+    "environment": {
+      "API_UPSTREAM": "http://127.0.0.1:8000"
+    }
+  }
+}

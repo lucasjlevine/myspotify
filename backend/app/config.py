@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     spotify_refresh_token: str = ""
 
     frontend_url: str = "http://localhost:3000"
+    # Comma-separated extra browser origins (e.g. Silk: https://NETID.w3.uvm.edu)
+    cors_origins: str = ""
 
     database_url: str = f"sqlite:///{DATA_DIR / 'plays.db'}"
     poll_interval_seconds: int = 15 * 60

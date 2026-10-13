@@ -14,7 +14,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Purpose
 
-Next.js dashboard for listening stats, next-song prediction, and play history. Proxies `/api/*` to the FastAPI backend.
+Next.js dashboard for listening stats, next-song prediction, and play history. Proxies `/api/*` to the FastAPI backend (`API_UPSTREAM`, standalone output for Silk).
 
 ## Conventions
 

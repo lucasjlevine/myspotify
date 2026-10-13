@@ -39,8 +39,10 @@ From repo root: `npm run dev` (backend + frontend).
 - Upsert key `(played_at, track_id)`
 - New models: implement protocol, register in `app/ml/registry.py`
 - Artifacts: `data/models/{id}.json` or `{id}.joblib` (+ `.meta.json` for binary)
-- Redirect URI: `127.0.0.1`, not `localhost`
+- Redirect URI: `127.0.0.1`, not `localhost`; path is `/api/authorize/callback`
+- All HTTP routes mount under `/api` (Silk + Next same-origin proxy)
 - OAuth success redirects to `FRONTEND_URL/auth/callback`
+- Optional `CORS_ORIGINS` (comma-separated) for Silk public host
 - Predict windows: `latest` | `hours_4` | `today` | `plays_N` (blend classical; prompted uses full window)
 - `prompted` is local TF-IDF today — keep the prompt builder so an Ollama backend can plug in later
 - `embedding` is local fastembed+audio: genres/mood phrases + 9-d features; `GET /predict/prompt?q=…` + `GET /predict/space?q=…` (2D PCA constellation)
